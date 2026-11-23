@@ -12,6 +12,10 @@ export class HABackend {
     this.token = String(token || '').trim();
     this.entities = new Map();   // entity_id -> entité normalisée
     this.rooms = new Map();      // entity_id -> nom de pièce
+    this.devices = new Map();    // entity_id -> id de l'appareil (télé : lecteur + télécommande)
+    this.deviceNames = new Map(); // id de l'appareil -> nom
+    this.deviceMacs = new Map();  // id de l'appareil -> adresse MAC
+    this.meta = new Map();       // entity_id -> { secondary }
     this.changeCbs = new Set();
     this.statusCbs = new Set();
     this.pending = new Map();
@@ -70,6 +74,7 @@ export class HABackend {
           }
           case 'event':
             if (msg.event?.event_type === 'state_changed') this.#onStateChanged(msg.event.data);
+            else if (/_registry_updated$/.test(msg.event?.event_type || '')) this.#scheduleRegistry();
             break;
         }
       };
@@ -102,6 +107,32 @@ export class HABackend {
   }
 
   async #init() {
+    await this.#loadRegistry();
+    const states = await this.#request({ type: 'get_states' });
+    this.entities.clear();
+    states.forEach((s) => this.#upsert(s));
+    await this.#request({ type: 'subscribe_events', event_type: 'state_changed' });
+    // Appareil ajouté ou déplacé de pièce : on relit les registres (sinon ni pièce ni appareil)
+    for (const ev of ['entity_registry_updated', 'device_registry_updated', 'area_registry_updated']) {
+      await this.#request({ type: 'subscribe_events', event_type: ev }).catch(() => {});
+    }
+    this.#emit();
+  }
+
+  #registryTimer = null;
+  #scheduleRegistry() {
+    clearTimeout(this.#registryTimer);
+    this.#registryTimer = setTimeout(async () => {
+      await this.#loadRegistry();
+      for (const e of this.entities.values()) {
+        e.room = this.rooms.get(e.id) || null;
+        Object.assign(e, this.#deviceInfo(e.id));
+      }
+      this.#emit();
+    }, 1000);
+  }
+
+  async #loadRegistry() {
     // Pièces (« zones » dans Home Assistant) : facultatif, on n'échoue pas si refusé
     try {
       const [areas, devices, registry] = await Promise.all([
@@ -111,18 +142,20 @@ export class HABackend {
       ]);
       const areaName = new Map(areas.map((a) => [a.area_id, a.name]));
       const deviceArea = new Map(devices.map((d) => [d.id, d.area_id]));
+      this.deviceNames = new Map(devices.map((d) => [d.id, d.name_by_user || d.name || '']));
+      // Adresse MAC de l'appareil (« connections » : [["mac", "aa:bb:…"]]) : sert au Wake-on-LAN de la télé
+      this.deviceMacs = new Map(devices.map((d) => [d.id, (d.connections || []).find((c) => c[0] === 'mac')?.[1] || '']));
       this.rooms.clear();
+      this.devices.clear();
+      this.meta.clear();
       for (const r of registry) {
+        if (r.device_id) this.devices.set(r.entity_id, r.device_id);
+        // Entités secondaires d'un appareil (réglages « LED », « Arrêt automatique », diagnostics…)
+        this.meta.set(r.entity_id, { secondary: Boolean(r.entity_category || r.hidden_by || r.disabled_by) });
         const area = r.area_id || deviceArea.get(r.device_id);
         if (area && areaName.has(area)) this.rooms.set(r.entity_id, areaName.get(area));
       }
     } catch { /* pas de pièces : tout ira dans « Sans pièce » */ }
-
-    const states = await this.#request({ type: 'get_states' });
-    this.entities.clear();
-    states.forEach((s) => this.#upsert(s));
-    await this.#request({ type: 'subscribe_events', event_type: 'state_changed' });
-    this.#emit();
   }
 
   #upsert(s) {
@@ -134,8 +167,19 @@ export class HABackend {
       domain,
       state: s.state,
       room: this.rooms.get(s.entity_id) || null,
+      ...this.#deviceInfo(s.entity_id),
       attributes: s.attributes || {},
     });
+  }
+
+  #deviceInfo(id) {
+    const device = this.devices.get(id) || null;
+    return {
+      device,
+      deviceName: (device && this.deviceNames.get(device)) || '',
+      mac: (device && this.deviceMacs.get(device)) || '',
+      secondary: this.meta.get(id)?.secondary || false,
+    };
   }
 
   #onStateChanged({ entity_id, new_state }) {

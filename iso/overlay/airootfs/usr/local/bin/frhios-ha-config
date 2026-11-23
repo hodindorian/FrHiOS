@@ -1,0 +1,11 @@
+#!/bin/sh
+# Prépare la configuration de Home Assistant au tout premier démarrage (n'écrase jamais l'existant).
+# Le compte, le jeton et les appareils sont ensuite créés par l'interface (electron/ha-local.js).
+set -eu
+DIR=/var/lib/homeassistant
+mkdir -p "$DIR"
+if [ ! -e "$DIR/configuration.yaml" ]; then
+  cp /usr/share/frhios/homeassistant/configuration.yaml "$DIR/configuration.yaml"
+  [ -e "$DIR/automations.yaml" ] || echo '[]' > "$DIR/automations.yaml"
+  touch "$DIR/scripts.yaml" "$DIR/scenes.yaml"
+fi

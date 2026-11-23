@@ -7,6 +7,7 @@ import { createElectronMusicPage, ADMIN_SERVICES } from './music-electron.js';
 import { mountWifi } from './wifi.js';
 import { createTerminalPage } from './terminal.js';
 import { createOsk } from './osk.js';
+import { mountSetup, onHaStatus } from './setup.js';
 
 /* ============================== Utilitaires ============================== */
 
@@ -19,6 +20,12 @@ const persist = () => save(settings);
 
 let backend = null;
 let entities = [];
+let haLocal = null;                 // état du Home Assistant local (electron/ha-local.js)
+let backendToken = null;            // jeton avec lequel le backend actuel a été créé
+
+// Mode effectif : 'local' (HA de l'appareil, automatique), 'ha' (serveur saisi à la main) ou 'mock'
+const LOCAL_AVAILABLE = Boolean(window.frhios?.ha);
+const mode = () => (settings.backend === 'auto' ? (LOCAL_AVAILABLE ? 'local' : 'mock') : settings.backend);
 let view = 'home';
 let sheetId = null;                 // appareil dont la fenêtre de détail est ouverte
 let dragging = false;               // un curseur est en cours de déplacement
@@ -73,9 +80,42 @@ function subtitle(e) {
 }
 
 const byId = (id) => entities.find((e) => e.id === id);
-const lights = () => entities.filter((e) => e.domain === 'light');
-const switches = () => entities.filter((e) => e.domain === 'switch');
-const controllable = () => entities.filter((e) => ['light', 'switch', 'media_player'].includes(e.domain));
+
+// Une tuile par appareil. Home Assistant crée souvent plusieurs entités par appareil (prise Tapo :
+// l'interrupteur, sa LED, l'arrêt automatique, les mises à jour…) : on ne garde que la principale.
+//  - entités marquées « réglage » / « diagnostic » / masquées dans HA : jamais affichées
+//  - par appareil : un seul lecteur (télé) et ses lumières (ampoule, Ambilight) ; s'il n'y en a pas,
+//    l'interrupteur qui porte le nom de l'appareil (la prise elle-même)
+// Réglages › « Tout afficher » montre tout, pour comprendre ce que HA a créé.
+const CONTROL = ['light', 'switch', 'media_player'];
+
+function primaryOf(group) {
+  const lightsIn = group.filter((e) => e.domain === 'light');
+  const player = group.find((e) => e.domain === 'media_player');
+  if (lightsIn.length || player) return [...(player ? [player] : []), ...lightsIn];
+  const sw = group.filter((e) => e.domain === 'switch');
+  const main = sw.find((e) => e.deviceName && e.name === e.deviceName)
+    || [...sw].sort((a, b) => a.name.length - b.name.length)[0];
+  return main ? [main] : [];
+}
+
+function controllable() {
+  const list = entities.filter((e) => CONTROL.includes(e.domain));
+  if (settings.showAll) return list;
+  const out = [];
+  const byDevice = new Map();
+  for (const e of list) {
+    if (e.secondary) continue;
+    if (!e.device) { out.push(e); continue; }
+    if (!byDevice.has(e.device)) byDevice.set(e.device, []);
+    byDevice.get(e.device).push(e);
+  }
+  for (const group of byDevice.values()) out.push(...primaryOf(group));
+  return out;
+}
+
+const lights = () => controllable().filter((e) => e.domain === 'light');
+const switches = () => controllable().filter((e) => e.domain === 'switch');
 
 /* ============================== Appels backend ============================== */
 
@@ -137,12 +177,26 @@ function homeView() {
   `;
 }
 
+// Message quand il n'y a rien à afficher, selon l'état de Home Assistant
+function noDevicesHTML(what = 'Aucun appareil connecté pour l’instant.') {
+  if (mode() === 'local') {
+    if (!haLocal || ['waiting', 'setup'].includes(haLocal.state)) {
+      return `<div class="empty">${esc(haLocal?.message || 'Démarrage de Home Assistant…')}<br>
+        <span class="muted">Au tout premier démarrage, cela peut prendre quelques minutes.</span></div>`;
+    }
+    if (haLocal.state !== 'ready') return `<div class="empty">${esc(haLocal.message)}</div>`;
+    return `<div class="empty">${what}<br><br>
+      <button class="btn primary" data-action="open-setup">Connecter des appareils</button></div>`;
+  }
+  return `<div class="empty">${what}<br>Connectez Home Assistant dans <b>Réglages</b>, ou utilisez le mode démo.</div>`;
+}
+
+const addButton = () => (mode() === 'local' && haLocal?.state === 'ready'
+  ? `<button class="btn" data-action="open-setup">＋ Ajouter</button>` : '');
+
 function devicesView() {
   const list = controllable();
-  if (!list.length) {
-    return `<h1>Appareils</h1><div class="empty">Aucun appareil trouvé.<br>
-      Connectez Home Assistant dans <b>Réglages</b>, ou utilisez le mode démo.</div>`;
-  }
+  if (!list.length) return `<div class="title-row"><h1>Appareils</h1>${addButton()}</div>${noDevicesHTML()}`;
   const rooms = new Map();
   for (const e of list) {
     const r = e.room || 'Sans pièce';
@@ -151,7 +205,7 @@ function devicesView() {
   }
   const names = [...rooms.keys()].sort((a, b) =>
     a === 'Sans pièce' ? 1 : b === 'Sans pièce' ? -1 : a.localeCompare(b, 'fr'));
-  return `<h1>Appareils</h1>` + names.map((r) =>
+  return `<div class="title-row"><h1>Appareils</h1>${addButton()}</div>` + names.map((r) =>
     `<h2>${esc(r)}</h2><div class="grid">${rooms.get(r).map(tile).join('')}</div>`).join('');
 }
 
@@ -162,12 +216,24 @@ const TV_APPS = [
   ['Disney+', 'https://www.disneyplus.com'],
 ];
 
-function tvView() {
-  const tv = entities.find((e) => e.domain === 'media_player');
+// Adresse MAC de la télé Philips du salon (scan du 23/11/2026), si HA ne la donne pas : Wake-on-LAN
+const TV_MAC = '0C:CA:FB:6E:82:92';
+
+// La télé : le lecteur multimédia du même appareil que la télécommande (Android TV Remote).
+// Il peut y avoir d'autres lecteurs (enceinte, Chromecast de la télé…) : ils passent après.
+function tvEntities() {
   const remote = entities.find((e) => e.domain === 'remote');
+  const players = entities.filter((e) => e.domain === 'media_player');
+  const tv = (remote && players.find((p) => p.device && p.device === remote.device))
+    || players.find((p) => /t[ée]l[ée]|tv|salon|philips/i.test(`${p.name} ${p.id}`))
+    || players[0];
+  return { tv, remote };
+}
+
+function tvView() {
+  const { tv, remote } = tvEntities();
   if (!tv && !remote) {
-    return `<h1>Télévision</h1><div class="empty">Aucune télé détectée.<br>
-      Dans Home Assistant, ajoutez l’intégration <b>Android TV Remote</b> pour la Philips.</div>`;
+    return `<h1>Télévision</h1>${noDevicesHTML('Aucune télé connectée.')}`;
   }
   const on = tv ? isOn(tv) : false;
   const vol = tv?.attributes.volume_level;
@@ -214,18 +280,40 @@ function tvView() {
     </div>`;
 }
 
+let showHaPassword = false;
+
+function localHaHTML() {
+  const st = haLocal;
+  const line = !st ? 'Lecture de l’état…'
+    : st.state === 'ready' ? 'Home Assistant tourne sur cet appareil et FrHiOS y est connecté.'
+      : st.message || st.state;
+  return `
+    <div>
+      <p class="hint">${esc(line)}</p>
+      ${st?.state === 'ready' ? '<button class="btn primary" data-action="open-setup">Connecter des appareils</button>' : ''}
+      ${st?.username ? `
+        <p class="hint">Compte Home Assistant (administration) : <b>${esc(st.username)}</b> ·
+          mot de passe <b>${showHaPassword ? esc(st.password) : '••••••••'}</b>
+          <button class="btn small" data-action="toggle-ha-pw">${showHaPassword ? 'Masquer' : 'Afficher'}</button></p>` : ''}
+    </div>`;
+}
+
 function settingsView() {
-  const ha = settings.backend === 'ha';
+  const m = settings.backend;
+  const ha = m === 'ha';
   return `
     <h1>Réglages</h1>
     <div class="form">
       <div>
         <div class="field-label"><span>Source des appareils</span></div>
         <div class="seg">
-          <button data-action="set-backend" data-value="mock" class="${!ha ? 'active' : ''}">Démo</button>
-          <button data-action="set-backend" data-value="ha" class="${ha ? 'active' : ''}">Home Assistant</button>
+          ${LOCAL_AVAILABLE ? `<button data-action="set-backend" data-value="auto" class="${m === 'auto' ? 'active' : ''}">Cet appareil</button>` : ''}
+          <button data-action="set-backend" data-value="ha" class="${ha ? 'active' : ''}">${LOCAL_AVAILABLE ? 'Autre serveur' : 'Home Assistant'}</button>
+          <button data-action="set-backend" data-value="mock" class="${m === 'mock' || (m === 'auto' && !LOCAL_AVAILABLE) ? 'active' : ''}">Démo</button>
         </div>
       </div>
+
+      ${mode() === 'local' ? localHaHTML() : ''}
 
       ${ha ? `
       <div>
@@ -242,13 +330,13 @@ function settingsView() {
         <p class="hint">Le jeton est stocké sur cet appareil uniquement.</p>
       </div>
       <button class="btn primary" data-action="save-settings">Enregistrer et connecter</button>
-      ` : '<p class="hint">Le mode démo utilise de faux appareils pour tester l’interface.</p>'}
+      ` : mode() === 'mock' ? '<p class="hint">Le mode démo utilise de faux appareils pour tester l’interface.</p>' : ''}
 
       <div id="wifi-box" class="wifi-box"></div>
 
       ${window.frhios ? `
       <div class="switch-row">
-        <span>Administration de Home Assistant <span class="muted">(comptes, intégrations, jeton)</span></span>
+        <span>Administration de Home Assistant <span class="muted">(automatisations, pièces, intégrations avancées)</span></span>
         <button class="btn" data-action="open-admin">Ouvrir</button>
       </div>
 
@@ -256,6 +344,11 @@ function settingsView() {
         <span>Terminal <span class="muted">(commandes, mises à jour du système…)</span></span>
         <button class="btn" data-action="open-terminal">Ouvrir</button>
       </div>` : ''}
+
+      <div class="switch-row">
+        <span>Tout afficher <span class="muted">(chaque réglage des appareils en tuile : LED, arrêt auto…)</span></span>
+        <button class="btn" data-action="toggle-show-all">${settings.showAll ? 'Oui' : 'Non'}</button>
+      </div>
 
       <div class="switch-row">
         <span>Masquer le curseur de souris <span class="muted">(écran tactile seul)</span></span>
@@ -272,7 +365,10 @@ function settingsView() {
     </div>`;
 }
 
-const VIEWS = { home: homeView, devices: devicesView, tv: tvView, settings: settingsView };
+const VIEWS = {
+  home: homeView, devices: devicesView, tv: tvView, settings: settingsView,
+  setup: () => '<div id="setup-box"></div>',
+};
 
 /* ============================== Fenêtre de détail ============================== */
 
@@ -361,6 +457,7 @@ function render() {
     pages[persistent]?.onShow();
   }
   if (view === 'settings') mountWifi($('#wifi-box'));
+  if (view === 'setup') mountSetup($('#setup-box'), { toast });
   tickClock();
 }
 
@@ -382,7 +479,7 @@ function scheduleRender() {
     if (powerOpen) return;
     if (sheetId) { if (!dragging) renderSheet(); return; }
     // Ne pas écraser un champ de saisie ou un curseur en cours d'utilisation
-    if (view === 'settings' || dragging) return;
+    if (view === 'settings' || view === 'setup' || dragging) return;
     render();
   });
 }
@@ -406,11 +503,32 @@ function setStatus(kind, text) {
 
 async function startBackend() {
   if (backend) backend.close();
-  setStatus('connecting', 'Connexion…');
+  backend = null;
+  backendToken = null;
   entities = [];
-  backend = settings.backend === 'ha'
-    ? new HABackend(settings.haUrl, settings.haToken)
-    : new MockBackend();
+  const m = mode();
+
+  if (m === 'local') {
+    // HA local pas encore prêt (premier démarrage, conteneur qui démarre…) : on attend son signal
+    if (!haLocal) {
+      const r = await window.frhios.ha.status();
+      haLocal = r?.ok ? r.result : null;
+    }
+    if (haLocal?.state !== 'ready' || !haLocal.token) {
+      setStatus(haLocal?.state === 'foreign' || haLocal?.state === 'error' ? 'err' : 'connecting',
+        haLocal?.message || 'Démarrage de Home Assistant…');
+      if (view !== 'settings' && view !== 'setup') render();
+      return;
+    }
+  }
+
+  setStatus('connecting', 'Connexion…');
+  if (m === 'local') {
+    backendToken = haLocal.token;
+    backend = new HABackend(haLocal.url, haLocal.token);
+  } else {
+    backend = m === 'ha' ? new HABackend(settings.haUrl, settings.haToken) : new MockBackend();
+  }
   backend.onChange(scheduleRender);
   backend.onStatus(setStatus);
   try {
@@ -469,14 +587,32 @@ const ACTIONS = {
   'light-color': (el) => call('light', 'turn_on', el.dataset.id, { rgb_color: rgbFrom(el.dataset.rgb) }),
   'light-temp': (el) => call('light', 'turn_on', el.dataset.id, { color_temp_kelvin: Number(el.dataset.k) }),
 
-  'tv-power': () => {
-    const tv = entities.find((e) => e.domain === 'media_player');
-    if (tv) call('media_player', 'toggle', tv.id);
-    else toast('Aucune télé trouvée');
+  'tv-power': async () => {
+    const { tv, remote } = tvEntities();
+    const on = (remote && isOn(remote)) || (tv && isOn(tv));
+    if (on) {
+      if (remote) call('remote', 'turn_off', remote.id); else call('media_player', 'turn_off', tv.id);
+      return;
+    }
+    // Télé éteinte : en veille profonde elle n'écoute plus HA, on la réveille par le réseau
+    // (Wake-on-LAN, 3 envois espacés), puis on lui demande de s'allumer quand elle répond.
+    const mac = remote?.mac || tv?.mac || TV_MAC;
+    if (window.frhios?.net) {
+      toast('Allumage de la télé…');
+      for (let i = 0; i < 3; i++) {
+        window.frhios.net.wake(mac);
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+    const target = remote || tv;
+    if (target && !isUnavailable(target)) call(target.domain, 'turn_on', target.id);
   },
   'tv-vol': (el) => {
-    const tv = entities.find((e) => e.domain === 'media_player');
-    if (tv) call('media_player', el.dataset.svc, tv.id);
+    const { tv } = tvEntities();
+    if (!tv) return;
+    if (el.dataset.svc === 'volume_mute') {
+      call('media_player', 'volume_mute', tv.id, { is_volume_muted: !tv.attributes.is_volume_muted });
+    } else call('media_player', el.dataset.svc, tv.id);
   },
   'tv-cmd': (el) => {
     const r = entities.find((e) => e.domain === 'remote');
@@ -492,9 +628,12 @@ const ACTIONS = {
   'set-backend': (el) => {
     settings.backend = el.dataset.value;
     persist();
-    if (settings.backend === 'mock') startBackend();
+    if (settings.backend !== 'ha') startBackend();   // 'ha' : on attend l'adresse et le jeton
     render();
   },
+  'open-setup': () => setView('setup'),
+  'toggle-ha-pw': () => { showHaPassword = !showHaPassword; render(); },
+  'toggle-show-all': () => { settings.showAll = !settings.showAll; persist(); render(); },
   'save-settings': () => {
     settings.haUrl = $('#ha-url').value.trim();
     settings.haToken = $('#ha-token').value.trim();
@@ -579,6 +718,19 @@ function init() {
 
   const fromHash = location.hash.slice(1);
   if (NAV.some((n) => n.id === fromHash)) view = fromHash;
+
+  // Home Assistant local : quand il devient prêt (ou change de jeton), on (re)connecte l'interface
+  onHaStatus((st) => {
+    const was = haLocal;
+    haLocal = st;
+    if (mode() !== 'local') return;
+    if (st.state === 'ready' && st.token && st.token !== backendToken) startBackend();
+    else if (st.state !== 'ready') {
+      setStatus(st.state === 'foreign' || st.state === 'error' ? 'err' : 'connecting', st.message);
+      if (!backend && view !== 'settings' && view !== 'setup') render();
+    }
+    if (view === 'settings' && was?.state !== st.state) render();
+  });
 
   bind();
   renderNav();

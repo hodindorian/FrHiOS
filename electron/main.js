@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFile, spawn } = require('node:child_process');
 const { YoutubeWindow } = require('./youtube-window');
+const { LocalHA, HA_URL } = require('./ha-local');
 
 const APP_DIR = path.join(__dirname, '..', 'app');
 const ASSETS_DIR = path.join(__dirname, '..', 'assets'); // servi sous /assets/ (fond d'écran…)
@@ -140,9 +141,24 @@ function createView(service) {
 
   view.setVisible(false);
   win.contentView.addChildView(view);
-  wc.loadURL(cfg.home);
+  if (service === 'ha') loadHaAdmin(wc); else wc.loadURL(cfg.home);
   views.set(service, view);
   return view;
+}
+
+// Administration de HA : on lui donne les jetons du compte créé par FrHiOS (localStorage « hassTokens »
+// de l'origine http://127.0.0.1:8123), elle s'ouvre donc déjà connectée. Sans jetons (HA configuré
+// à la main, ou pas encore prêt), page de connexion habituelle.
+async function loadHaAdmin(wc) {
+  const home = SERVICES.ha.home;
+  const tokens = localHA ? await localHA.adminTokens() : null;
+  if (!tokens) { wc.loadURL(home); return; }
+  try {
+    await wc.loadURL(`${HA_URL}/manifest.json`); // n'importe quelle page de la bonne origine
+    await wc.executeJavaScript(
+      `if (!localStorage.getItem('hassTokens')) localStorage.setItem('hassTokens', ${JSON.stringify(JSON.stringify(tokens))}); true`);
+  } catch { /* HA pas joignable : la page d'accueil affichera l'erreur */ }
+  wc.loadURL(home);
 }
 
 const clampRect = (r) => {
@@ -324,6 +340,72 @@ ipcMain.handle('wifi:connect', (event, ssid, password) => new Promise((resolve) 
   child.stdin.end();
 }));
 
+/* ------------------------- Wake-on-LAN (allumer la télé en veille) ------------------------- */
+
+// Une télé en veille profonde coupe son réseau : HA ne peut plus lui parler. On envoie un « paquet
+// magique » (6 × FF puis 16 × l'adresse MAC) en diffusion UDP, que sa carte réseau écoute même en veille.
+const MAC_RE = /^([0-9a-f]{2}[:-]){5}[0-9a-f]{2}$/i;
+
+function broadcastAddresses() {
+  const out = new Set(['255.255.255.255']);
+  for (const addrs of Object.values(require('node:os').networkInterfaces())) {
+    for (const a of addrs || []) {
+      if (a.family !== 'IPv4' || a.internal || !a.netmask) continue;
+      const ip = a.address.split('.').map(Number);
+      const mask = a.netmask.split('.').map(Number);
+      out.add(ip.map((b, i) => (b | (~mask[i] & 255))).join('.'));
+    }
+  }
+  return [...out];
+}
+
+ipcMain.handle('net:wake', (event, mac) => new Promise((resolve) => {
+  if (!fromMainWindow(event) || typeof mac !== 'string' || !MAC_RE.test(mac)) return resolve({ ok: false, error: 'Adresse MAC invalide' });
+  const macBytes = Buffer.from(mac.replace(/[:-]/g, ''), 'hex');
+  const packet = Buffer.concat([Buffer.alloc(6, 0xff), ...Array(16).fill(macBytes)]);
+  const sock = require('node:dgram').createSocket('udp4');
+  sock.once('error', () => { sock.close(); resolve({ ok: false, error: 'Envoi impossible' }); });
+  sock.bind(() => {
+    sock.setBroadcast(true);
+    const sends = [];
+    for (const addr of broadcastAddresses()) {
+      for (const port of [9, 7]) sends.push(new Promise((r) => sock.send(packet, port, addr, () => r())));
+    }
+    Promise.all(sends).then(() => { sock.close(); resolve({ ok: true }); });
+  });
+}));
+
+/* ------------------------- Home Assistant local ------------------------- */
+
+// Pas sur l'ISO d'installation : Home Assistant ne tourne que sur le système installé
+let localHA = null;
+
+function startLocalHA() {
+  if (INSTALLER) return;
+  localHA = new LocalHA(path.join(app.getPath('userData'), 'home-assistant.json'));
+  localHA.on('status', (st) => win?.webContents.send('ha:status', st));
+  localHA.start();
+}
+
+// Chaque appel renvoie { ok: true, result } ou { ok: false, error } (jamais d'exception vers l'interface)
+function haHandle(channel, fn) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    if (!fromMainWindow(event)) return { ok: false, error: 'Refusé' };
+    if (!localHA) return { ok: false, error: 'Home Assistant local indisponible' };
+    try { return { ok: true, result: await fn(...args) }; } catch (err) { return { ok: false, error: err.message || String(err) }; }
+  });
+}
+
+haHandle('ha:status', () => localHA.publicStatus());
+haHandle('ha:overview', () => localHA.overview());
+haHandle('ha:flow-start', (handler) => localHA.startFlow(handler));
+haHandle('ha:flow-step', (flowId, data) => localHA.flowStep(flowId, data));
+haHandle('ha:flow-get', (flowId) => localHA.getFlow(flowId));
+haHandle('ha:flow-abort', (flowId) => localHA.abortFlow(flowId));
+haHandle('ha:entry-delete', (entryId) => localHA.deleteEntry(entryId));
+haHandle('ha:translations', (domains) => localHA.translations(domains));
+haHandle('ha:matter-commission', (opts) => localHA.matterCommission(opts));
+
 /* ------------------------- Terminal intégré ------------------------- */
 
 // Le shell tourne dans un vrai pseudo-terminal (couleurs, vim, htop, sudo…) obtenu avec `script`
@@ -482,6 +564,7 @@ async function createWindow() {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  startLocalHA();
   return createWindow();
 }).catch((err) => {
   console.error('Démarrage impossible :', err);
@@ -492,4 +575,4 @@ app.on('second-instance', () => {
   if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
 });
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => yt?.destroy());
+app.on('before-quit', () => { yt?.destroy(); localHA?.stop(); });

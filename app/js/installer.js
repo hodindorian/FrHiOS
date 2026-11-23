@@ -45,8 +45,9 @@ function view() {
       <div class="inst-head">${icons.flower}<h1>FrHiOS</h1></div>
       <p class="inst-lead">Bienvenue. Cet assistant installe FrHiOS sur le disque de cet appareil.
         Il démarrera ensuite tout seul sur votre tableau de bord tactile.</p>
-      <p class="hint">Branchez le câble réseau si vous en avez un : Home Assistant en aura besoin
-        au premier démarrage pour se télécharger.</p>
+      <p class="hint">Tout est inclus, aucune connexion internet n’est nécessaire pour installer. Branchez
+        quand même le câble réseau si vous en avez un : FrHiOS doit être sur le même réseau que la télé
+        et les prises pour les piloter.</p>
       <button class="btn primary inst-big" data-go="disks">Commencer</button>`;
 
     case 'disks': return `

@@ -12,7 +12,7 @@ export LC_ALL=C
 
 DISK="${1:-}"
 TARGET=/mnt/frhios-target
-MIN_BYTES=$((14 * 1000 * 1000 * 1000))   # le système installé fait ~5 Go ; on exige de la marge
+MIN_BYTES=$((24 * 1000 * 1000 * 1000))   # système ~5 Go + images HA/Matter (~2 Go, puis ~4 Go une fois chargées) + marge
 
 progress() { echo "@@PROGRESS $1 $2"; }
 die() { echo "ERREUR : $*" >&2; exit 1; }
@@ -34,7 +34,7 @@ trap cleanup EXIT
 [[ "$(lsblk -dno TRAN "$DISK")" != "usb" ]] || die "$DISK est un disque USB (clé de démarrage ?)"
 [[ "$(lsblk -dno RO "$DISK")" == "0" ]] || die "$DISK est en lecture seule"
 SIZE=$(lsblk -dbno SIZE "$DISK")
-(( SIZE >= MIN_BYTES )) || die "disque trop petit ($((SIZE / 1000000000)) Go ; 14 Go minimum)"
+(( SIZE >= MIN_BYTES )) || die "disque trop petit ($((SIZE / 1000000000)) Go ; 24 Go minimum)"
 
 # Aucune partition du disque ne doit être utilisée (par exemple le support de démarrage)
 if lsblk -rno MOUNTPOINTS "$DISK" | grep -q .; then
@@ -126,7 +126,12 @@ GRUB_DISABLE_OS_PROBER=true
 EOF
 
 if [[ -d /sys/firmware/efi ]]; then
-  # UEFI : une entrée dans la mémoire de la carte mère (si possible) + le chemin de secours universel
+  # UEFI : une entrée dans la mémoire de la carte mère (si possible) + le chemin de secours universel.
+  # Réinstallation : on supprime d'abord les anciennes entrées « FrHiOS », qui pointent vers une partition
+  # effacée ; sinon la carte mère les essaie, échoue et peut partir sur le démarrage réseau (PXE).
+  efibootmgr 2>/dev/null | sed -n 's/^Boot\([0-9A-Fa-f]\{4\}\)\*\{0,1\}[[:space:]]*FrHiOS[[:space:]].*/\1/p' | while read -r num; do
+    efibootmgr -q -b "$num" -B || true
+  done || true
   arch-chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=FrHiOS >/dev/null 2>&1 || true
   arch-chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory=/boot --removable >/dev/null
 else

@@ -384,3 +384,14 @@ input[type=range]::-moz-range-thumb { width: 2.4rem; height: 2.4rem; border-radi
 .term-host .xterm { height: 100%; }
 .term-host .xterm-viewport { background-color: transparent !important; }
 .term-page { -webkit-user-select: text; user-select: text; }
+
+/* ---------- Connecter des appareils ---------- */
+.title-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.setup-list, .opt-list { display: grid; gap: .5rem; max-width: 46rem; }
+.setup-list .wifi-item { padding-block: .7rem; line-height: 1.4; }
+.wifi-item.static { backdrop-filter: blur(12px); }
+.small { font-size: .82rem; font-weight: 500; }
+.btn.small { min-height: 2.4rem; padding: 0 .9rem; margin-left: .4rem; }
+.hint.pre { white-space: pre-line; }
+.hint.err-text { color: var(--err); }
+.hint.notice { color: var(--text); padding: .8rem 1rem; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }

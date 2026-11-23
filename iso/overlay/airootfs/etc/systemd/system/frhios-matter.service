@@ -1,0 +1,26 @@
+[Unit]
+Description=Serveur Matter (LEDs, ampoules et prises Matter, pilotées en local par Home Assistant)
+After=docker.service network-online.target bluetooth.service
+Requires=docker.service
+Wants=network-online.target bluetooth.service
+ConditionPathExists=!/run/archiso
+
+[Service]
+Restart=always
+RestartSec=20
+TimeoutStartSec=30min
+Environment=IMAGE=ghcr.io/home-assistant-libs/python-matter-server:stable
+ExecStartPre=-/usr/bin/docker rm -f matter-server
+ExecStartPre=/usr/local/bin/frhios-image ${IMAGE} matter-server.tar
+ExecStartPre=/usr/bin/mkdir -p /var/lib/matter-server
+# Écoute sur ws://127.0.0.1:5580/ws. Bluetooth (via D-Bus) pour appairer les appareils neufs, seulement
+# si la machine a un adaptateur Bluetooth (sinon : appairage par code de partage uniquement).
+# ($$BT : variable du shell, pas de systemd)
+ExecStart=/bin/sh -c 'BT=; [ -e /sys/class/bluetooth/hci0 ] && BT="--bluetooth-adapter 0"; \
+  exec /usr/bin/docker run --rm --name matter-server --network=host \
+  -v /var/lib/matter-server:/data -v /run/dbus:/run/dbus:ro "$IMAGE" \
+  --storage-path /data --paa-root-cert-dir /data/credentials $$BT'
+ExecStop=/usr/bin/docker stop matter-server
+
+[Install]
+WantedBy=multi-user.target

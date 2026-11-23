@@ -1,0 +1,17 @@
+# Configuration de Home Assistant sur FrHiOS (copiée au premier démarrage, modifiable ensuite :
+# /var/lib/homeassistant/configuration.yaml, puis redémarrer : sudo systemctl restart frhios-ha)
+
+# Ensemble standard : interface web, découverte des appareils (mDNS, SSDP, DHCP), historique…
+default_config:
+
+homeassistant:
+  name: Maison
+  country: FR
+  language: fr
+  time_zone: Europe/Paris
+  unit_system: metric
+  currency: EUR
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml

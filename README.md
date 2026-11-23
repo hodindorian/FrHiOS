@@ -42,7 +42,8 @@ Le mode démo utilise de faux appareils : rien n'est envoyé sur le réseau.
 
 > Si Electron démarre comme un simple Node (erreur « Cannot read properties of undefined (reading
 > 'commandLine') »), c'est que la variable `ELECTRON_RUN_AS_NODE` est définie, ce que fait VS Code
-> pour ses sous-processus. Les scripts npm la retirent ; en lancement manuel : `env -u ELECTRON_RUN_AS_NODE`.
+> pour ses sous-processus. Les scripts npm la retirent (`scripts/start.js`, fonctionne aussi sous Windows) ; en lancement manuel
+> sous Linux : `env -u ELECTRON_RUN_AS_NODE electron .`, sous PowerShell : `Remove-Item Env:ELECTRON_RUN_AS_NODE`.
 
 ## Contenu de `app/`
 
@@ -51,6 +52,8 @@ Le mode démo utilise de faux appareils : rien n'est envoyé sur le réseau.
 | `js/app.js` | pages, navigation, actions tactiles |
 | `js/backend-mock.js` | faux appareils (mode démo) |
 | `js/backend-ha.js` | client WebSocket Home Assistant (même interface que le mode démo) |
+| `js/setup.js` | page « Connecter des appareils » (formulaires d'ajout de Home Assistant, appareils de la maison) |
+| `../electron/ha-local.js` | Home Assistant local : compte et jeton créés tout seuls, ajout d'appareils, Matter |
 | `js/osk.js` | clavier AZERTY à l'écran (champs de l'interface **et** recherche dans YouTube/Deezer) |
 | `../electron/view-preload.js` | détecte les champs de texte dans YouTube/Deezer (n'expose rien aux sites) |
 | `../assets/background.jpg` | fond d'écran, teinté en violet par le CSS (`hue-rotate`) |
@@ -73,13 +76,13 @@ Le mode démo utilise de faux appareils : rien n'est envoyé sur le réseau.
    (mode normal ; si l'ISO ne démarre pas, rebootez et choisissez le **mode GRUB2** dans le menu Ventoy).
    Secure Boot doit être désactivé (ou la clé Ventoy enregistrée).
 3. L'assistant d'installation tactile s'affiche : choisir le disque, confirmer l'effacement.
-   Le système est copié depuis l'ISO, sans internet. Il faut un disque d'au moins **14 Go**.
+   Le système est copié depuis l'ISO, sans internet. Il faut un disque d'au moins **24 Go**.
 4. Retirez la clé, redémarrez : FrHiOS se lance tout seul en plein écran.
 5. **Réglages › Wi-Fi** : choisir le réseau et saisir le mot de passe (clavier à l'écran).
-6. Home Assistant se télécharge tout seul au premier démarrage (réseau nécessaire, ~1 Go, quelques minutes),
-   puis est joignable via **Réglages › Administration de Home Assistant** : créer le compte, ajouter les
-   intégrations, puis créer le jeton (Profil › Sécurité), le **copier**, et le coller (touche « Coller »
-   du clavier, couche `?123`) dans Réglages › Home Assistant.
+6. Home Assistant démarre tout seul (quelques minutes au premier démarrage, le temps de charger son image
+   embarquée dans l'ISO, sans internet). FrHiOS crée lui-même le compte et le jeton : rien à saisir.
+7. **Appareils › ＋ Ajouter** (ou Réglages › Connecter des appareils) : toucher la télé, l'Ambilight, les
+   Tapo… puis saisir le code affiché sur la télé ou le compte Tapo. Voir « Home Assistant » plus bas.
 
 Détails du système installé : utilisateur `frhios` (connexion automatique sur la console 1), mot de passe
 initial `frhios` pour la maintenance au clavier (console 2 : Ctrl+Alt+F2 ; à changer avec `passwd`),
@@ -94,7 +97,8 @@ initial `frhios` pour la maintenance au clavier (console 2 : Ctrl+Alt+F2 ; à ch
   change de page. Le clavier à l'écran gagne une rangée Échap / Tab / Ctrl / flèches / `^C` et une
   couche de symboles (`#+=` : `| ~ \ { } [ ] $ * < >` …). Mettre à jour le système : `upg`
   (alias de `sudo pacman -Syyu --noconfirm`), mot de passe sudo : celui de `frhios`.
-- **zsh / oh-my-zsh** : `iso/build.sh` copie votre `~/.oh-my-zsh` (sans `.git`) dans l'ISO. Le `.zshrc` est
+- **zsh / oh-my-zsh** : la version officielle d'oh-my-zsh est téléchargée pendant la construction de l'ISO
+  (`iso/container-build.sh`) : rien à installer sur le PC qui construit. Le `.zshrc` est
   `iso/overlay/airootfs/usr/share/frhios/home/.zshrc` : une version **nettoyée** du vôtre (thème agnoster,
   plugin git, alias pacman/ls/git). Ont été volontairement retirés : identifiants et jetons, mot de passe
   en clair d'un alias, adresses de serveurs, outils de développement absents du mini PC, et l'alias
@@ -126,19 +130,87 @@ texte (Ctrl+Alt+F2 ou F3 ; Ctrl droite + F2 dans VirtualBox), connexion `frhios`
 Tests dans QEMU : `./iso/test-vm.sh install`. KVM refuse de démarrer si VirtualBox tourne en même temps
 (erreur `KVM: entry failed`) : fermer la VM VirtualBox, ou `FRHIOS_VM_ACCEL=tcg` (très lent).
 
-## Connexion à Home Assistant (étape 2)
+## Home Assistant (local, automatique)
 
-1. Dans Home Assistant : Profil › Sécurité › **Jeton d'accès longue durée**.
-2. Dans l'app : Réglages › Home Assistant, adresse (`http://IP:8123`) et jeton.
+Tout tourne sur l'appareil, sans compte en ligne ni autre machine :
 
-Intégrations à ajouter dans Home Assistant :
+- **Conteneurs** `frhios-ha.service` (Home Assistant) et `frhios-matter.service` (serveur Matter, pour les
+  LEDs/ampoules Matter). Leurs images Docker sont **embarquées dans l'ISO** par `iso/build.sh` et chargées
+  au premier démarrage (`/usr/local/bin/frhios-image`) ; sans elles (`FRHIOS_BUNDLE_IMAGES=0`), elles sont
+  téléchargées. Configuration : `/var/lib/homeassistant` (créée par `frhios-ha-config`).
+- **Premier démarrage** (`electron/ha-local.js`) : FrHiOS fait l'« onboarding » de HA à votre place
+  (compte `frhios` avec mot de passe aléatoire, France / français / Europe/Paris), crée un jeton longue
+  durée et s'y connecte. Identifiants : `~/.config/frhios/home-assistant.json` (lisible seulement par
+  `frhios`) ; le mot de passe est aussi visible dans **Réglages** (bouton « Afficher »).
+  L'**administration web** de HA (Réglages) s'ouvre déjà connectée.
+- **Ajout d'appareils** : page *Connecter des appareils*. Elle pilote les formulaires d'ajout de HA
+  (les mêmes que dans son interface web, en français) : appareils détectés automatiquement par HA,
+  raccourcis vers les appareils de la maison, appairage Matter, retrait d'un appareil.
+- **Autre serveur** : Réglages › Source des appareils › *Autre serveur* (adresse + jeton saisis à la main).
 
-- **Tapo** : intégration *TP-Link Smart Home* (compte Tapo requis pour les firmwares récents).
-- **TV Philips 55OLED809** (Google TV) : intégration *Android TV Remote*. Elle crée une
-  entité `media_player` (volume, marche/arrêt) et une entité `remote` (flèches, OK, applis).
-  L'app utilise les deux automatiquement.
-- **LEDs Myko** : protocole à identifier (Tuya/Smart Life, Afero, Matter…). À scanner depuis
-  le réseau de la maison.
+### Appareils de la maison (scan du réseau du 23/11/2026, box Bbox)
+
+| Appareil | Adresse | Intégration HA | Ce qu'il faut |
+|---|---|---|---|
+| Télé Philips 55OLED809 « Salon » (Ethernet) | 192.168.1.123 | *Android TV Remote* : marche/arrêt, volume, flèches, applis | code affiché sur la télé |
+| Ambilight de la télé | 192.168.1.123 | *Philips TV* (API JointSPACE 6) : les LEDs Ambilight deviennent une lumière | autre code affiché sur la télé |
+| 3 × prise Tapo P100(FR) | 192.168.1.15, .34, .154 | *TP-Link Smart Home* | e-mail + mot de passe du compte Tapo (une seule fois) ; **activer d'abord la « Compatibilité tierce »** (voir ci-dessous) |
+| Enceinte Spotify Connect (probablement un Echo) | 192.168.1.147 | — | |
+| Appareil Wi-Fi à puce Espressif, aucun port ouvert | 192.168.1.181 | — | probablement une LED Myko (voir ci-dessous) |
+
+Les adresses viennent du DHCP de la box : **réservez-les** dans la Bbox (bail statique), sinon elles
+peuvent changer. HA retrouve de toute façon la télé et les Tapo par découverte réseau (rubrique
+« Détectés automatiquement ») ; les raccourcis ne servent qu'à pré-remplir l'adresse.
+
+### Allumer la télé quand elle est éteinte
+
+En veille profonde, la télé coupe son réseau : Home Assistant ne peut plus lui parler. Le bouton marche/arrêt
+de la page TV envoie alors un **Wake-on-LAN** (paquet réseau qui réveille la carte réseau de la télé,
+`electron/main.js`, `net:wake`) vers sa MAC (`0C:CA:FB:6E:82:92`, ou celle connue de HA), puis l'allume.
+
+À activer **une fois sur la télé** (Philips Google TV ; le nom exact du menu varie selon la version) :
+*Paramètres › Réseau et Internet* › **Allumer avec Wi-Fi (WoWLAN)** / *Wake on LAN*, et si présent
+**Allumer avec Chromecast**. Sans ce réglage, la télé ne peut être allumée qu'à la télécommande.
+
+### Prises Tapo P100 et chiffrement « TPAP »
+
+Les P100 de la maison ont un firmware récent qui annonce le nouveau chiffrement **TPAP**. Il n'est géré par
+aucune version publiée de python-kasa (la bibliothèque de Home Assistant ; 0.12.0 dans HA 2026.11.2) :
+HA les voit mais répond « Unable to create device » / « Unsupported device ». Suivi :
+[python-kasa #1590](https://github.com/python-kasa/python-kasa/issues/1590),
+[PR #1592](https://github.com/python-kasa/python-kasa/pull/1592) (pas encore fusionnée),
+[home-assistant/core #154300](https://github.com/home-assistant/core/issues/154300).
+
+Contournement : dans l'appli **Tapo**, *Moi › Services tiers* (Third-Party Services) › activer
+**Compatibilité tierce** (Third-Party Compatibility). Les prises repassent alors au chiffrement géré (KLAP)
+et s'ajoutent normalement. Vérifier depuis un PC avec Docker :
+`docker run --rm --entrypoint kasa ghcr.io/home-assistant/home-assistant:stable --host 192.168.1.15 state`
+(« Encrypt Type: KLAP » attendu).
+
+### LEDs Myko (« Monster », 192.168.1.181)
+
+Confirmé le 23/11/2026 (l'adresse disparaît quand on les débranche ; nom Bbox « espressif »).
+Modèle **Klite Strip Light**, série `D0EF76CBB924` (= son adresse MAC), firmware v1.4.11. Elles sont
+**pilotées uniquement par le cloud Myko** : aucun port ouvert, aucune annonce mDNS / Matter / SSDP.
+
+- L'ancienne appli Myko reposait sur la plateforme **Afero**. La bibliothèque `aioafero` (utilisée par
+  l'intégration *Hubspace*) a géré Myko jusqu'à sa version 7.0.3 (juin 2026), puis l'a retiré ; ses serveurs
+  (`api2.sxz2xlhh.afero.net`) n'existent plus.
+- Castorama a remplacé l'appli par **Myko+** au 31/01/2026 ; aucune information publique sur sa plateforme,
+  aucune intégration Home Assistant.
+
+Solution conseillée : **garder le ruban et remplacer son boîtier de commande** par un contrôleur WLED (Wi-Fi,
+100 % local, souvent vendu avec WLED préinstallé) de même tension (5 / 12 / 24 V) et même nombre de broches
+(RGB 4 broches, RGBW 5, CCT 3…) ; il s'ajoute dans *Connecter des appareils › Ruban LED WLED* ou apparaît
+dans « Détectés automatiquement ». Autres pistes : un code **Matter** depuis Myko+ s'il existe (*Connecter des appareils › Appareil Matter*) ;
+remplacer par des LEDs Matter ou Tapo ; ou reprogrammer le contrôleur (puce Espressif) avec WLED / ESPHome
+(ouverture du boîtier, liaison série, risque de le rendre inutilisable).
+
+### Une tuile par appareil
+
+HA crée plusieurs entités par appareil (prise Tapo : interrupteur + LED + arrêt automatique + mises à jour…).
+La page Appareils n'affiche que l'entité principale (les entités « réglage » / « diagnostic » de HA sont
+masquées) et « Tout éteindre » ne touche qu'elles. *Réglages › Tout afficher* montre tout.
 
 ## Limites connues
 
@@ -150,12 +222,15 @@ Intégrations à ajouter dans Home Assistant :
   avec `--kiosk`), *Toujours* ou *Jamais*. Le bouton ⌨ de la page Musique l'ouvre à la main.
   Dans YouTube/Deezer il écrit dans le champ actif ; il n'y a pas de touches fléchées ni Tab.
 - **Pas de DRM Widevine** dans Electron : suffisant pour YouTube et Deezer, pas pour du contenu protégé.
-- **Jeton Home Assistant** : stocké en clair dans le localStorage du navigateur du PC.
-- Le client Home Assistant (`backend-ha.js`) n'a pas encore été testé contre un vrai serveur.
+- **Jeton Home Assistant** : en mode *Autre serveur*, stocké en clair dans le localStorage ; en mode local,
+  dans `~/.config/frhios/home-assistant.json` (droits 0600).
+- L'automatisation de HA (`ha-local.js`) et la page d'ajout ont été testées contre un **faux serveur** qui imite
+  les API de HA (onboarding, jetons, formulaires d'ajout, Matter), pas encore contre un vrai Home Assistant.
 
 ## Étapes
 
 1. ✅ Prototype de l'interface (mode démo)
-2. ⏳ Home Assistant + Tapo + TV Philips + scan des LEDs Myko (à faire sur le réseau de la maison)
+2. ✅ Home Assistant local automatique + ajout de la télé, de l'Ambilight et des Tapo depuis l'écran ;
+   ⏳ à valider sur l'appareil ; LEDs Myko : cloud uniquement (voir « LEDs Myko »)
 3. ⏳ Finitions musique
 4. ⏳ Image Linux kiosque (Cage + Chromium) pour le petit PC

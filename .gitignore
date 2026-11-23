@@ -2,3 +2,4 @@
 node_modules
 iso/.stage
 iso/out
+iso/build.log

@@ -5,8 +5,8 @@
   "private": true,
   "main": "electron/main.js",
   "scripts": {
-    "start": "env -u ELECTRON_RUN_AS_NODE electron .",
-    "kiosk": "env -u ELECTRON_RUN_AS_NODE electron . --kiosk",
+    "start": "node scripts/start.js",
+    "kiosk": "node scripts/start.js --kiosk",
     "web": "python3 -m http.server 8765 --bind 127.0.0.1"
   },
   "devDependencies": {

@@ -51,8 +51,10 @@ noto-fonts-emoji
 ttf-dejavu
 ttf-liberation
 
-# --- Home Assistant (conteneur)
+# --- Home Assistant + serveur Matter (conteneurs) ; Bluetooth pour appairer les appareils Matter neufs
 docker
+bluez
+bluez-utils
 
 # --- terminal : zsh + oh-my-zsh (copié depuis ~/.oh-my-zsh au moment de la construction)
 zsh

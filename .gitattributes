@@ -1,0 +1,11 @@
+# Les fichiers du système Linux (scripts, services, configuration) doivent garder des fins de ligne LF,
+# même sous Windows avec core.autocrlf=true : un « \r » casse les scripts et les unités systemd.
+iso/** text eol=lf
+*.sh text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.png binary
+*.jpg binary

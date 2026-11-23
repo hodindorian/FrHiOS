@@ -10,7 +10,7 @@ PROFILE=/build/profile
 echo "==> Installation d'archiso et de grub (outils de construction)"
 pacman-key --init >/dev/null 2>&1
 pacman-key --populate archlinux >/dev/null 2>&1
-pacman -Syu --noconfirm --needed archiso grub
+pacman -Syu --noconfirm --needed archiso grub git
 
 echo "==> Profil d'ISO (base : baseline d'archiso)"
 rm -rf /build && mkdir -p /build
@@ -18,16 +18,33 @@ cp -r /usr/share/archiso/configs/baseline "$PROFILE"
 
 # Nos fichiers système et notre liste de paquets
 cp -a "$SRC/iso/overlay/." "$PROFILE/"
+# Depuis Windows (Docker Desktop), les fichiers montés arrivent en 0777 : on remet des droits normaux
+# (les exécutables et sudoers ont leurs droits fixés plus bas, dans file_permissions)
+(cd "$SRC/iso/overlay" && find . -type d) | while IFS= read -r d; do chmod 755 "$PROFILE/$d"; done
+(cd "$SRC/iso/overlay" && find . -type f) | while IFS= read -r f; do chmod 644 "$PROFILE/$f"; done
 grep -v '^\s*#' "$SRC/iso/packages.txt" | grep -v '^\s*$' > "$PROFILE/packages.x86_64"
 
 # L'application elle-même
 mkdir -p "$PROFILE/airootfs/opt"
 cp -a "$STAGE/frhios" "$PROFILE/airootfs/opt/frhios"
+find "$PROFILE/airootfs/opt/frhios" -type d -exec chmod 755 {} +
+find "$PROFILE/airootfs/opt/frhios" -type f -exec chmod 644 {} +
 
-# oh-my-zsh (copie du PC de l'utilisateur, préparée par build.sh)
-if [ -d "$STAGE/frhios-home/.oh-my-zsh" ]; then
-  mkdir -p "$PROFILE/airootfs/usr/share/frhios/home"
-  cp -a "$STAGE/frhios-home/.oh-my-zsh" "$PROFILE/airootfs/usr/share/frhios/home/.oh-my-zsh"
+# oh-my-zsh pour le terminal : version officielle, téléchargée ici (aucune dépendance au PC qui construit).
+# Copié dans le dossier personnel de « frhios » au premier démarrage (frhios-firstboot.service),
+# utilisé par /usr/share/frhios/home/.zshrc (thème agnoster, plugin git).
+echo "==> Téléchargement d'oh-my-zsh"
+OMZ="$PROFILE/airootfs/usr/share/frhios/home/.oh-my-zsh"
+mkdir -p "$(dirname "$OMZ")"
+git clone --depth 1 https://github.com/ohmyzsh/ohmyzsh.git "$OMZ"
+rm -rf "$OMZ/.git"
+[ -f "$OMZ/oh-my-zsh.sh" ] && [ -f "$OMZ/themes/agnoster.zsh-theme" ] || { echo "oh-my-zsh incomplet" >&2; exit 1; }
+chmod -R go-w "$OMZ"
+
+# Images Docker de Home Assistant et du serveur Matter (préparées par build.sh)
+if [ -d "$STAGE/images" ]; then
+  mkdir -p "$PROFILE/airootfs/usr/share/frhios/images"
+  cp "$STAGE"/images/*.tar "$PROFILE/airootfs/usr/share/frhios/images/"
 fi
 
 # Liens symboliques qui activent les services au démarrage (équivalent de « systemctl enable »)
@@ -38,6 +55,9 @@ ln -sf /usr/lib/systemd/system/NetworkManager-dispatcher.service "$W/dbus-org.fr
 ln -sf /usr/lib/systemd/system/NetworkManager-wait-online.service "$W/network-online.target.wants/NetworkManager-wait-online.service"
 ln -sf /usr/lib/systemd/system/docker.service                    "$W/multi-user.target.wants/docker.service"
 ln -sf /etc/systemd/system/frhios-ha.service                     "$W/multi-user.target.wants/frhios-ha.service"
+ln -sf /etc/systemd/system/frhios-matter.service                 "$W/multi-user.target.wants/frhios-matter.service"
+ln -sf /usr/lib/systemd/system/bluetooth.service                 "$W/multi-user.target.wants/bluetooth.service"
+ln -sf /usr/lib/systemd/system/bluetooth.service                 "$W/dbus-org.bluez.service"
 ln -sf /etc/systemd/system/frhios-firstboot.service              "$W/multi-user.target.wants/frhios-firstboot.service"
 ln -sf /etc/systemd/system/frhios-keyring.service                "$W/multi-user.target.wants/frhios-keyring.service"
 ln -sf /usr/lib/systemd/system/systemd-timesyncd.service         "$W/sysinit.target.wants/systemd-timesyncd.service"
@@ -56,6 +76,8 @@ file_permissions+=(
   ["/usr/local/bin/frhios-session"]="0:0:755"
   ["/usr/local/bin/frhios-app"]="0:0:755"
   ["/usr/local/bin/frhios-install"]="0:0:755"
+  ["/usr/local/bin/frhios-image"]="0:0:755"
+  ["/usr/local/bin/frhios-ha-config"]="0:0:755"
   ["/etc/sudoers.d/frhios"]="0:0:440"
 )
 EOF

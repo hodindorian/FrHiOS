@@ -1,0 +1,19 @@
+#!/bin/sh
+# Rend une image Docker disponible pour les services FrHiOS (Home Assistant, serveur Matter) :
+#   1. déjà chargée : rien à faire
+#   2. sinon, copie embarquée dans le système (/usr/share/frhios/images, ajoutée par iso/build.sh) :
+#      chargée sans internet, puis supprimée pour libérer ~1 à 2 Go
+#   3. sinon, téléchargement (réseau nécessaire)
+#
+#   frhios-image IMAGE FICHIER.tar
+set -eu
+IMG="$1"
+TAR="/usr/share/frhios/images/$2"
+
+docker image inspect "$IMG" >/dev/null 2>&1 && exit 0
+if [ -r "$TAR" ]; then
+  echo "Chargement de $IMG depuis $TAR"
+  docker load -i "$TAR" && rm -f "$TAR" && exit 0
+fi
+echo "Téléchargement de $IMG"
+exec docker pull "$IMG"

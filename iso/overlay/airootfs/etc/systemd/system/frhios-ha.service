@@ -1,18 +1,24 @@
 [Unit]
-Description=Home Assistant (conteneur Docker)
+Description=Home Assistant (conteneur Docker, configuré automatiquement par FrHiOS)
 After=docker.service network-online.target
 Requires=docker.service
-Wants=network-online.target
+Wants=network-online.target frhios-matter.service
 # Pas sur l'ISO d'installation : seulement sur le système installé
 ConditionPathExists=!/run/archiso
 
 [Service]
 Restart=always
 RestartSec=20
-# Télécharge l'image au premier démarrage (réseau nécessaire), puis la garde
+# Le chargement de l'image embarquée prend quelques minutes au premier démarrage
+TimeoutStartSec=30min
+Environment=IMAGE=ghcr.io/home-assistant/home-assistant:stable
 ExecStartPre=-/usr/bin/docker rm -f homeassistant
-ExecStartPre=/bin/sh -c 'docker image inspect ghcr.io/home-assistant/home-assistant:stable >/dev/null 2>&1 || docker pull ghcr.io/home-assistant/home-assistant:stable'
-ExecStart=/usr/bin/docker run --rm --name homeassistant --network=host -e TZ=Europe/Paris -v /var/lib/homeassistant:/config -v /run/dbus:/run/dbus:ro ghcr.io/home-assistant/home-assistant:stable
+ExecStartPre=/usr/local/bin/frhios-image ${IMAGE} homeassistant.tar
+ExecStartPre=/usr/local/bin/frhios-ha-config
+# Réseau de l'hôte : indispensable pour découvrir les appareils (mDNS, SSDP) et piloter la télé.
+# D-Bus : Bluetooth.
+ExecStart=/usr/bin/docker run --rm --name homeassistant --network=host -e TZ=Europe/Paris \
+  -v /var/lib/homeassistant:/config -v /run/dbus:/run/dbus:ro ${IMAGE}
 ExecStop=/usr/bin/docker stop homeassistant
 
 [Install]

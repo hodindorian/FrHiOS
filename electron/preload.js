@@ -28,6 +28,24 @@ contextBridge.exposeInMainWorld('frhios', {
     onData: (cb) => { ipcRenderer.on('term:data', (_e, text) => cb(text)); },
     onExit: (cb) => { ipcRenderer.on('term:exit', (_e, result) => cb(result)); },
   },
+  // Home Assistant local, configuré automatiquement (electron/ha-local.js).
+  // Chaque fonction renvoie { ok, result } ou { ok: false, error }.
+  ha: {
+    status: () => ipcRenderer.invoke('ha:status'),
+    onStatus: (cb) => { ipcRenderer.on('ha:status', (_e, st) => cb(st)); },
+    overview: () => ipcRenderer.invoke('ha:overview'),
+    startFlow: (handler) => ipcRenderer.invoke('ha:flow-start', handler),
+    flowStep: (flowId, data) => ipcRenderer.invoke('ha:flow-step', flowId, data),
+    getFlow: (flowId) => ipcRenderer.invoke('ha:flow-get', flowId),
+    abortFlow: (flowId) => ipcRenderer.invoke('ha:flow-abort', flowId),
+    deleteEntry: (entryId) => ipcRenderer.invoke('ha:entry-delete', entryId),
+    translations: (domains) => ipcRenderer.invoke('ha:translations', domains),
+    matterCommission: (opts) => ipcRenderer.invoke('ha:matter-commission', opts),
+  },
+  net: {
+    // Wake-on-LAN : réveille un appareil en veille (la télé) par son adresse MAC
+    wake: (mac) => ipcRenderer.invoke('net:wake', mac),
+  },
   clipboard: {
     read: () => ipcRenderer.invoke('clipboard:read'),
   },
