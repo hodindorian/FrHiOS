@@ -1,0 +1,14 @@
+[Unit]
+Description=Comptes FrHiOS (mot de passe initial, root verrouillé, configuration zsh)
+After=systemd-sysusers.service systemd-tmpfiles-setup.service
+ConditionPathExists=!/var/lib/frhios-accounts-done
+
+[Service]
+Type=oneshot
+# Mot de passe initial de l'utilisateur « frhios » : frhios (à changer avec la commande passwd).
+# root est verrouillé : on ne peut pas s'y connecter directement.
+# La configuration zsh (.zshrc, oh-my-zsh) est copiée dans le dossier personnel sans écraser l'existant.
+ExecStart=/bin/sh -c 'echo "frhios:frhios" | chpasswd && passwd -l root && cp -rn /usr/share/frhios/home/. /home/frhios/ && chown -R frhios:frhios /home/frhios && touch /var/lib/frhios-accounts-done'
+
+[Install]
+WantedBy=multi-user.target

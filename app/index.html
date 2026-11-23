@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>FrHiOS</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Décor : photo teintée violet, cercle magique, étincelles. Purement décoratif. -->
+  <div class="bg" aria-hidden="true">
+    <div class="bg-photo"></div>
+    <div class="bg-tint"></div>
+
+    <img class="bg-circle" src="/assets/zoltraak-circle.png" alt="" onerror="this.remove()">
+
+    <svg width="0" height="0" style="position:absolute">
+      <symbol id="spark" viewBox="0 0 24 24"><path d="M12 0C12 8 16 12 24 12 16 12 12 16 12 24 12 16 8 12 0 12 8 12 12 8 12 0Z"/></symbol>
+    </svg>
+    <svg class="spark" style="left:14%;top:22%;--s:1.6rem;--d:4.2s"><use href="#spark"/></svg>
+    <svg class="spark" style="left:78%;top:14%;--s:1.1rem;--d:5.6s;animation-delay:-1.2s"><use href="#spark"/></svg>
+    <svg class="spark" style="left:88%;top:58%;--s:1.9rem;--d:6.3s;animation-delay:-3s"><use href="#spark"/></svg>
+    <svg class="spark" style="left:36%;top:82%;--s:1.2rem;--d:4.8s;animation-delay:-2s"><use href="#spark"/></svg>
+    <svg class="spark" style="left:62%;top:40%;--s:.8rem;--d:3.9s;animation-delay:-.6s"><use href="#spark"/></svg>
+    <svg class="spark" style="left:6%;top:68%;--s:1rem;--d:5.1s;animation-delay:-4s"><use href="#spark"/></svg>
+  </div>
+
+  <div class="app">
+    <nav class="nav" id="nav" aria-label="Navigation principale"></nav>
+
+    <div class="main">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark" id="brand-mark"></span>FrHiOS</div>
+        <div class="topbar-right">
+          <div class="status" id="status"><span class="dot"></span><span id="status-text">…</span></div>
+          <button class="icon-btn" id="btn-fullscreen" aria-label="Plein écran"></button>
+        </div>
+      </header>
+      <main class="view" id="view"></main>
+      <div class="osk" id="osk" hidden></div>
+    </div>
+  </div>
+
+  <div class="sheet-backdrop" id="sheet" hidden></div>
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+#!/bin/sh
+# Lance sway (compositeur Wayland) qui lance à son tour l'interface FrHiOS (frhios-app).
+#  - sur l'ISO d'installation (/run/archiso existe) : l'assistant d'installation
+#  - sur le système installé : le tableau de bord
+export XDG_SESSION_TYPE=wayland
+export XKB_DEFAULT_LAYOUT=fr
+export ELECTRON_OZONE_PLATFORM_HINT=wayland
+export WLR_NO_HARDWARE_CURSORS=1
+
+if [ -d /run/archiso ]; then FRHIOS_MODE="--installer"; else FRHIOS_MODE="--kiosk"; fi
+
+# Réglages facultatifs de la machine (ex. ELECTRON_EXTRA_FLAGS="--disable-gpu" en cas de souci d'affichage)
+[ -r /etc/frhios.conf ] && . /etc/frhios.conf
+
+# Rendu logiciel (sans carte graphique 3D) : indispensable dans une machine virtuelle
+# (VirtualBox, VMware… n'offrent pas toujours d'accélération 3D utilisable), et utilisé aussi
+# en secours si l'affichage accéléré échoue au démarrage.
+SOFTWARE=0
+if systemd-detect-virt -q 2>/dev/null; then SOFTWARE=1; fi
+
+# Si la session s'arrête, on la relance
+while true; do
+  if [ "$SOFTWARE" = 1 ]; then
+    export WLR_RENDERER=pixman
+    FRHIOS_FLAGS="--disable-gpu $ELECTRON_EXTRA_FLAGS"
+  else
+    unset WLR_RENDERER
+    FRHIOS_FLAGS="$ELECTRON_EXTRA_FLAGS"
+  fi
+  export FRHIOS_MODE FRHIOS_FLAGS
+
+  START=$(date +%s)
+  echo "== $(date) démarrage de sway (rendu logiciel : $SOFTWARE)" >> /tmp/frhios-sway.log
+  sway -c /etc/frhios/sway.conf >> /tmp/frhios-sway.log 2>&1
+  echo "== sway s'est arrêté (code $?)" >> /tmp/frhios-sway.log
+  ELAPSED=$(( $(date +%s) - START ))
+
+  # Arrêt en moins de 10 s : l'affichage accéléré ne fonctionne pas sur cette machine,
+  # on passe au rendu logiciel pour les essais suivants.
+  [ "$ELAPSED" -lt 10 ] && SOFTWARE=1
+  sleep 3
+done

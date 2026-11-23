@@ -1,0 +1,6 @@
+# Maintenance au clavier : sudo avec mot de passe pour le groupe wheel
+%wheel ALL=(ALL:ALL) ALL
+# ATTENTION : dans sudoers, la DERNIÈRE règle qui correspond l'emporte. Cette ligne doit donc rester
+# APRÈS celle de wheel : l'interface d'installation (utilisateur frhios) ne peut lancer en root,
+# sans mot de passe, que ce script.
+frhios ALL=(root) NOPASSWD: /usr/local/bin/frhios-install

@@ -1,0 +1,142 @@
+#!/bin/bash
+# Installe FrHiOS sur un disque en copiant le système de l'ISO (aucun accès internet nécessaire).
+# Appelé en root par l'assistant graphique (sudo, voir /etc/sudoers.d/frhios).
+#
+#   frhios-install /dev/nvme0n1
+#
+# Les lignes « @@PROGRESS <pourcentage> <message> » alimentent la barre de progression.
+# ATTENTION : TOUT le contenu du disque indiqué est effacé.
+
+set -euo pipefail
+export LC_ALL=C
+
+DISK="${1:-}"
+TARGET=/mnt/frhios-target
+MIN_BYTES=$((14 * 1000 * 1000 * 1000))   # le système installé fait ~5 Go ; on exige de la marge
+
+progress() { echo "@@PROGRESS $1 $2"; }
+die() { echo "ERREUR : $*" >&2; exit 1; }
+
+cleanup() {
+  set +e
+  sync
+  umount -R "$TARGET" 2>/dev/null
+}
+trap cleanup EXIT
+
+# ---------- Vérifications (on refuse au moindre doute) ----------
+[[ $EUID -eq 0 ]] || die "root requis"
+[[ -d /run/archiso ]] || die "à lancer uniquement depuis l'ISO d'installation"
+[[ "$DISK" =~ ^/dev/(sd[a-z]+|vd[a-z]+|nvme[0-9]+n[0-9]+|mmcblk[0-9]+)$ ]] || die "disque invalide : '$DISK'"
+[[ -b "$DISK" ]] || die "$DISK n'est pas un disque"
+
+[[ "$(lsblk -dno TYPE "$DISK")" == "disk" ]] || die "$DISK n'est pas un disque entier"
+[[ "$(lsblk -dno TRAN "$DISK")" != "usb" ]] || die "$DISK est un disque USB (clé de démarrage ?)"
+[[ "$(lsblk -dno RO "$DISK")" == "0" ]] || die "$DISK est en lecture seule"
+SIZE=$(lsblk -dbno SIZE "$DISK")
+(( SIZE >= MIN_BYTES )) || die "disque trop petit ($((SIZE / 1000000000)) Go ; 14 Go minimum)"
+
+# Aucune partition du disque ne doit être utilisée (par exemple le support de démarrage)
+if lsblk -rno MOUNTPOINTS "$DISK" | grep -q .; then
+  die "$DISK contient des partitions montées"
+fi
+
+PART_PREFIX="$DISK"
+[[ "$DISK" =~ [0-9]$ ]] && PART_PREFIX="${DISK}p"
+BIOS_PART="${PART_PREFIX}1"; ESP_PART="${PART_PREFIX}2"; ROOT_PART="${PART_PREFIX}3"
+
+# ---------- Partitionnement ----------
+progress 3 "Préparation du disque"
+wipefs -af "$DISK" >/dev/null
+sgdisk --zap-all "$DISK" >/dev/null
+
+progress 6 "Partitionnement"
+# Table GPT avec : zone de démarrage BIOS (1 Mo), partition EFI (512 Mo), système (le reste).
+# Fonctionne aussi bien sur un PC UEFI que sur un PC BIOS ancien.
+sgdisk -n1:0:+1M   -t1:EF02 -c1:bios "$DISK" >/dev/null
+sgdisk -n2:0:+512M -t2:EF00 -c2:esp  "$DISK" >/dev/null
+sgdisk -n3:0:0     -t3:8300 -c3:frhios-root "$DISK" >/dev/null
+partprobe "$DISK" || true
+udevadm settle
+for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -b "$ROOT_PART" ]] && break; sleep 1; done
+[[ -b "$ROOT_PART" ]] || die "partitions introuvables après le partitionnement"
+
+progress 10 "Formatage"
+mkfs.fat -F32 -n FRHIOS_ESP "$ESP_PART" >/dev/null
+mkfs.ext4 -F -q -L frhios-root "$ROOT_PART"
+
+mkdir -p "$TARGET"
+mount "$ROOT_PART" "$TARGET"
+mkdir -p "$TARGET/boot"
+mount "$ESP_PART" "$TARGET/boot"
+
+# ---------- Copie du système ----------
+progress 14 "Copie du système (quelques minutes)"
+# /run/archiso/airootfs = image du système telle que construite (sans les modifications de la session live)
+SRC=/run/archiso/airootfs
+[[ -d "$SRC/usr" ]] || die "image du système introuvable ($SRC)"
+
+last=-1
+rsync -aAXH --numeric-ids --info=progress2 --no-inc-recursive "$SRC/" "$TARGET/" 2>&1 \
+  | tr '\r' '\n' \
+  | while IFS= read -r line; do
+      if [[ "$line" =~ ([0-9]+)% ]]; then
+        pct="${BASH_REMATCH[1]}"
+        if (( pct != last )); then
+          last=$pct
+          progress $((14 + pct * 66 / 100)) "Copie du système"
+        fi
+      fi
+    done
+
+# ---------- Configuration ----------
+progress 82 "Configuration du système"
+genfstab -U "$TARGET" > "$TARGET/etc/fstab"
+
+# Le noyau de l'ISO utilise un initramfs spécial (archiso) : on le remplace par un initramfs normal
+rm -f "$TARGET"/etc/mkinitcpio.conf.d/archiso.conf
+cat > "$TARGET/etc/mkinitcpio.conf" <<'EOF'
+MODULES=()
+BINARIES=()
+FILES=()
+HOOKS=(base udev autodetect microcode modconf kms keyboard keymap block filesystems fsck)
+EOF
+cat > "$TARGET/etc/mkinitcpio.d/linux.preset" <<'EOF'
+ALL_config="/etc/mkinitcpio.conf"
+ALL_kver="/boot/vmlinuz-linux"
+PRESETS=('default')
+default_image="/boot/initramfs-linux.img"
+EOF
+
+KERNEL_IMG=$(ls "$TARGET"/usr/lib/modules/*/vmlinuz 2>/dev/null | head -n1 || true)
+[[ -n "$KERNEL_IMG" ]] || die "noyau introuvable dans le système copié"
+install -Dm644 "$KERNEL_IMG" "$TARGET/boot/vmlinuz-linux"
+
+progress 86 "Création de l'initramfs"
+arch-chroot "$TARGET" mkinitcpio -P >/dev/null
+
+progress 90 "Installation du chargeur de démarrage"
+cat > "$TARGET/etc/default/grub" <<'EOF'
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=2
+GRUB_DISTRIBUTOR="FrHiOS"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=3"
+GRUB_CMDLINE_LINUX=""
+GRUB_DISABLE_OS_PROBER=true
+EOF
+
+if [[ -d /sys/firmware/efi ]]; then
+  # UEFI : une entrée dans la mémoire de la carte mère (si possible) + le chemin de secours universel
+  arch-chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=FrHiOS >/dev/null 2>&1 || true
+  arch-chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory=/boot --removable >/dev/null
+else
+  arch-chroot "$TARGET" grub-install --target=i386-pc "$DISK" >/dev/null
+fi
+arch-chroot "$TARGET" grub-mkconfig -o /boot/grub/grub.cfg >/dev/null 2>&1
+
+# ---------- Fin ----------
+progress 98 "Finalisation"
+sync
+umount -R "$TARGET"
+trap - EXIT
+progress 100 "Installation terminée"

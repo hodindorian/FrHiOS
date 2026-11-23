@@ -1,0 +1,11 @@
+#!/bin/sh
+# Lance l'interface FrHiOS dans la session sway (voir /etc/frhios/sway.conf et frhios-session).
+# Journal : /tmp/frhios-app.log (à consulter depuis la console 2 : Ctrl+Alt+F2)
+export ELECTRON_ENABLE_LOGGING=1
+{
+  echo "== $(date) mode=$FRHIOS_MODE flags=$FRHIOS_FLAGS WAYLAND_DISPLAY=$WAYLAND_DISPLAY SWAYSOCK=$SWAYSOCK"
+  /usr/bin/electron /opt/frhios $FRHIOS_MODE $FRHIOS_FLAGS
+  echo "== electron s'est arrêté (code $?)"
+} >> /tmp/frhios-app.log 2>&1
+# L'interface s'est arrêtée : on ferme sway, frhios-session relance une session propre
+swaymsg exit

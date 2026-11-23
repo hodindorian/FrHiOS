@@ -1,0 +1,19 @@
+[Unit]
+Description=Home Assistant (conteneur Docker)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+# Pas sur l'ISO d'installation : seulement sur le système installé
+ConditionPathExists=!/run/archiso
+
+[Service]
+Restart=always
+RestartSec=20
+# Télécharge l'image au premier démarrage (réseau nécessaire), puis la garde
+ExecStartPre=-/usr/bin/docker rm -f homeassistant
+ExecStartPre=/bin/sh -c 'docker image inspect ghcr.io/home-assistant/home-assistant:stable >/dev/null 2>&1 || docker pull ghcr.io/home-assistant/home-assistant:stable'
+ExecStart=/usr/bin/docker run --rm --name homeassistant --network=host -e TZ=Europe/Paris -v /var/lib/homeassistant:/config -v /run/dbus:/run/dbus:ro ghcr.io/home-assistant/home-assistant:stable
+ExecStop=/usr/bin/docker stop homeassistant
+
+[Install]
+WantedBy=multi-user.target

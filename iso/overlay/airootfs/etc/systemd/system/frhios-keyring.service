@@ -1,0 +1,13 @@
+[Unit]
+Description=Initialisation du trousseau de clés pacman (pour pouvoir mettre à jour le système)
+ConditionPathExists=!/etc/pacman.d/gnupg/trustdb.gpg
+# Pas sur l'ISO d'installation
+ConditionPathExists=!/run/archiso
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/pacman-key --init
+ExecStart=/usr/bin/pacman-key --populate archlinux
+
+[Install]
+WantedBy=multi-user.target

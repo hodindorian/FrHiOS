@@ -1,0 +1,63 @@
+# Paquets de l'ISO FrHiOS (remplace la liste du profil « baseline » d'archiso)
+
+# --- base du système et démarrage de l'ISO
+base
+linux
+linux-firmware
+sof-firmware
+mkinitcpio
+mkinitcpio-archiso
+syslinux
+intel-ucode
+amd-ucode
+sudo
+polkit
+
+# --- outils de l'installateur (copie du système sur le disque)
+grub
+efibootmgr
+dosfstools
+e2fsprogs
+gptfdisk
+parted
+rsync
+arch-install-scripts
+
+# --- réseau
+networkmanager
+wpa_supplicant
+wireless-regdb
+iw
+
+# --- affichage : sway (Wayland, une seule application plein écran + une fenêtre flottante pour YouTube)
+sway
+wtype
+electron
+chromium
+mesa
+libva-mesa-driver
+intel-media-driver
+
+# --- son
+pipewire
+pipewire-pulse
+pipewire-alsa
+wireplumber
+alsa-utils
+
+# --- polices (l'interface utilise une serif et le symbole ✦)
+noto-fonts
+noto-fonts-emoji
+ttf-dejavu
+ttf-liberation
+
+# --- Home Assistant (conteneur)
+docker
+
+# --- terminal : zsh + oh-my-zsh (copié depuis ~/.oh-my-zsh au moment de la construction)
+zsh
+git
+vim
+nano
+fastfetch
+ttf-nerd-fonts-symbols-mono

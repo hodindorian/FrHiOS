@@ -1,0 +1,14 @@
+// L'utilisateur du kiosque peut gérer le Wi-Fi (NetworkManager) depuis l'interface tactile.
+polkit.addRule(function(action, subject) {
+  if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0 && subject.user === "frhios") {
+    return polkit.Result.YES;
+  }
+});
+
+// Le bouton « Éteindre » de l'interface peut éteindre ou redémarrer l'appareil.
+polkit.addRule(function(action, subject) {
+  if (subject.user === "frhios" && (action.id.indexOf("org.freedesktop.login1.power-off") === 0 ||
+                                     action.id.indexOf("org.freedesktop.login1.reboot") === 0)) {
+    return polkit.Result.YES;
+  }
+});
