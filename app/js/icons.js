@@ -25,6 +25,7 @@ export const icons = {
   back: svg('<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>'),
   chevLeft: svg('<path d="M15 5l-7 7 7 7"/>'),
   reload: svg('<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>'),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
   play: svg('<path d="M7 4.5v15l12-7.5z"/>'),
   moon: svg('<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>'),
   sun: svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/>'),

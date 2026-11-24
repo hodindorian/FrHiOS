@@ -210,6 +210,7 @@ h2::before { content: "✦"; color: var(--accent); margin-right: .55em; }
   min-height: 3.4rem; padding: 0 1.4rem; border-radius: 16px;
   background: var(--surface-2); border: 1px solid var(--line); font-weight: 700;
 }
+.btn:has(> svg) { display: inline-flex; align-items: center; gap: .5rem; }
 .btn:active { background: var(--line); }
 .btn.primary { background: linear-gradient(135deg, #a98bff, #cdb4ff); color: var(--accent-ink); border-color: transparent; }
 .btn.primary:active { filter: brightness(.9); }

@@ -176,7 +176,7 @@ function homeView() {
       <button class="chip-btn" data-action="ambiance">${icons.moon} Ambiance chaude</button>
       ${customActions().map((e) => `<button class="chip-btn" data-action="run-action" data-id="${esc(e.id)}">${icons.play} ${esc(e.name)}</button>`).join('')}
       ${mode() === 'local' && haLocal?.state === 'ready'
-        ? `<button class="chip-btn ghost" data-action="open-admin" aria-label="Créer une action dans Home Assistant">＋ Action</button>` : ''}
+        ? `<button class="chip-btn ghost" data-action="open-admin" aria-label="Créer une action dans Home Assistant">${icons.plus} Action</button>` : ''}
     </div>
 
     <h2>Allumés${on.length ? ` · ${on.length}` : ''}</h2>
@@ -201,7 +201,7 @@ function noDevicesHTML(what = 'Aucun appareil connecté pour l’instant.') {
 }
 
 const addButton = () => (mode() === 'local' && haLocal?.state === 'ready'
-  ? `<button class="btn" data-action="open-setup">＋ Ajouter</button>` : '');
+  ? `<button class="btn" data-action="open-setup">${icons.plus} Ajouter</button>` : '');
 
 function devicesView() {
   const list = controllable();
