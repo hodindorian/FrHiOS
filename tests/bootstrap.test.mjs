@@ -36,14 +36,14 @@ test('installe le script de démarrage et la dernière version publiée (tag), p
   const g = fakeGitHub();
   try {
     fs.mkdirSync(path.join(g.dir, 'bin'));
-    g.release('v1.0.0');
+    g.release('V1.0');   // majuscule, comme sur GitHub
     g.put('app/js/app.js', 'COMMIT-APRES-LE-TAG'); g.release(null);   // ne doit pas être livré
     const r = run(g);
     assert.equal(r.status, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /version v1\.0\.0/);
+    assert.match(r.stdout, /version V1\.0/);
     assert.ok(fs.existsSync(path.join(g.dir, 'bin/frhios-app')), 'script de démarrage installé');
     const current = fs.readlinkSync(path.join(g.dir, 'state/app/current'));
-    assert.equal(path.basename(current), 'v1.0.0');
+    assert.equal(path.basename(current), 'V1.0');
     assert.equal(fs.readFileSync(path.join(current, 'app/js/app.js'), 'utf8'), 'contenu app/js/app.js');
     assert.ok(fs.existsSync(path.join(current, 'version.json')));
   } finally { g.cleanup(); }

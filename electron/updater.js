@@ -30,9 +30,9 @@ const STATE_DIR = process.env.FRHIOS_STATE_DIR || '/var/lib/frhios';
 const SHIPPED = ['app', 'electron', 'assets'];      // dossiers du dépôt qui font l'application
 const KEEP = 3;                                      // versions gardées sur le disque
 const SHA_RE = /^[0-9a-f]{40}$/;
-// Tag de version : v1, v1.2, v1.2.3 (avec ou sans « v »). Tout autre tag (test, latest, v1.0-rc1…) est ignoré.
+// Tag de version : v1, v1.2, v1.2.3 (avec ou sans « v », majuscule ou minuscule). Tout autre tag (test, latest, v1.0-rc1…) est ignoré.
 // Cette forme stricte sert aussi de protection : le nom du tag devient un nom de dossier.
-const TAG_RE = /^v?(\d{1,4})(?:\.(\d{1,4}))?(?:\.(\d{1,4}))?$/;
+const TAG_RE = /^v?(\d{1,4})(?:\.(\d{1,4}))?(?:\.(\d{1,4}))?$/i;   // « v » ou « V » (ex. V1.0)
 
 const parseTag = (tag) => { const m = TAG_RE.exec(tag || ''); return m ? [Number(m[1]), Number(m[2] || 0), Number(m[3] || 0)] : null; };
 /** Compare deux numéros de version : 1.10.0 > 1.9.0 (ordre numérique, pas alphabétique). */
@@ -212,7 +212,7 @@ class Updater {
         if (!fs.existsSync(path.join(tmp, must))) { fs.rmSync(tmp, { recursive: true, force: true }); return { ok: false, error: `Version incomplète (${must} manquant).` }; }
       }
       // Mêmes fichiers que ceux écrits par iso/build.sh
-      fs.writeFileSync(path.join(tmp, 'package.json'), `${JSON.stringify({ name: 'frhios', version: tag.replace(/^v/, ''), private: true, main: 'electron/main.js' }, null, 2)}\n`);
+      fs.writeFileSync(path.join(tmp, 'package.json'), `${JSON.stringify({ name: 'frhios', version: tag.replace(/^v/i, ''), private: true, main: 'electron/main.js' }, null, 2)}\n`);
       fs.writeFileSync(path.join(tmp, 'version.json'), `${JSON.stringify({ tag, commit, date, message, dirty: false }, null, 2)}\n`);
 
       progress('Activation…');

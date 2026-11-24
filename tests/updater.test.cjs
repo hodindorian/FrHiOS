@@ -30,6 +30,8 @@ test('numéros de version : ordre numérique, tags non conformes ignorés', () =
   assert.ok(compareTags('2', 'v1.99.99') > 0);
   assert.equal(compareTags('v1.2', '1.2.0'), 0);
   for (const bad of ['latest', 'test', 'v1.0-rc1', 'v1.2.3.4', '../etc', 'v1.0.0/x', '']) assert.equal(parseTag(bad), null, bad);
+  assert.deepEqual(parseTag('V1.0'), [1, 0, 0], 'le V majuscule de GitHub est accepté');
+  assert.equal(compareTags('V1.0', 'v1.0.0'), 0);
 });
 
 test('mise à jour de l\'application depuis les tags d\'un dépôt distant', async (t) => {

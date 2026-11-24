@@ -1,0 +1,94 @@
+name: ISO de la version
+
+# À chaque tag de version poussé (ex. v1.2.0, V1.0, 2.0) : lance les tests, construit l'ISO d'installation
+# et la joint à la « Release » GitHub de ce tag (créée si elle n'existe pas encore).
+# Peut aussi être relancé à la main (onglet Actions › « Run workflow ») pour un tag existant.
+on:
+  push:
+    tags: ['v[0-9]*', 'V[0-9]*', '[0-9]*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag existant dont il faut (re)construire l'ISO (ex. v1.2.0)"
+        required: true
+
+# Lecture seule par défaut ; l'écriture est donnée au seul job qui joint l'ISO à la version
+permissions:
+  contents: read
+
+# Une seule construction à la fois pour un même tag (sans annuler celle en cours : elle est longue)
+concurrency:
+  group: iso-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  iso:
+    name: Tests, construction de l'ISO et ajout à la version
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Contrôle du nom du tag
+        run: |
+          # Même forme que celle acceptée par l'appareil pour ses mises à jour (v1, v1.2, V1.2.3…)
+          [[ "$TAG" =~ ^[vV]?[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "Tag « $TAG » : pas un numéro de version, rien à publier."; exit 1; }
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0          # historique et tags complets : l'ISO indique sa version (git describe)
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Une version qui ne passe pas les tests n'est pas publiée
+      - name: Tests
+        run: npm test
+
+      # La construction a besoin de place (paquets, image système, ISO) : on libère les gros logiciels
+      # préinstallés sur la machine GitHub, dont on n'a pas besoin ici.
+      - name: Libérer de l'espace disque
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force >/dev/null
+          df -h / | tail -n 1
+
+      # Sans les images Docker de Home Assistant et Matter (~3 Go) : l'ISO tient alors sous la limite de
+      # 2 Go par fichier de GitHub, et l'appareil les télécharge au premier démarrage (réseau nécessaire).
+      # Pour une ISO avec ces images : ./iso/build.sh sur votre PC.
+      - name: Construire l'ISO
+        run: FRHIOS_BUNDLE_IMAGES=0 ./iso/build.sh
+
+      - name: Préparer les fichiers à joindre
+        run: |
+          set -euo pipefail
+          iso="$(ls iso/out/frhios-*-x86_64.iso | head -n 1)"
+          mkdir -p dist
+          mv "$iso" "dist/frhios-${TAG}-x86_64.iso"
+          cd dist
+          # GitHub refuse les fichiers de plus de 2 Gio : au-delà, on découpe (à recoller avec « cat »)
+          size="$(stat -c %s "frhios-${TAG}-x86_64.iso")"
+          if [ "$size" -gt $((1900 * 1024 * 1024)) ]; then
+            split -b 1800M -d "frhios-${TAG}-x86_64.iso" "frhios-${TAG}-x86_64.iso.part-"
+            rm "frhios-${TAG}-x86_64.iso"
+            echo "SPLIT=1" >> "$GITHUB_ENV"
+          fi
+          sha256sum -- * > SHA256SUMS
+          ls -lh
+
+      - name: Joindre à la version GitHub
+        run: |
+          set -euo pipefail
+          # La version existe déjà si vous l'avez créée depuis l'interface GitHub ; sinon on la crée
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag
+          gh release upload "$TAG" dist/* --clobber
+          if [ "${SPLIT:-0}" = 1 ]; then
+            notes="$(gh release view "$TAG" --json body --jq .body)"
+            printf '%s\n\n**ISO en plusieurs morceaux** (GitHub limite les fichiers à 2 Go). Après les avoir téléchargés tous :\n```\ncat frhios-%s-x86_64.iso.part-* > frhios-%s-x86_64.iso && sha256sum -c --ignore-missing SHA256SUMS\n```\n' \
+              "$notes" "$TAG" "$TAG" | gh release edit "$TAG" --notes-file -
+          fi

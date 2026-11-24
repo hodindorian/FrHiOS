@@ -27,7 +27,7 @@ command -v git >/dev/null 2>&1 || { echo "git est introuvable sur cet appareil."
 
 echo "==> Recherche de la dernière version publiée sur GitHub"
 TAG=$(GIT_TERMINAL_PROMPT=0 git ls-remote --tags --refs "$REPO" \
-  | sed 's#.*refs/tags/##' | grep -E '^v?[0-9]+(\.[0-9]+){0,2}$' | sort -V | tail -n 1 || true)
+  | sed 's#.*refs/tags/##' | grep -E '^[vV]?[0-9]+(\.[0-9]+){0,2}$' | sort -V | tail -n 1 || true)
 if [ -z "$TAG" ]; then
   echo "Aucun tag de version (ex. v1.0.0) sur GitHub : créez-en un (git tag v1.0.0 && git push origin v1.0.0), puis relancez."
   exit 1

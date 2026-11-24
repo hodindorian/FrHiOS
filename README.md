@@ -154,6 +154,28 @@ et retour arrière), `tools/bootstrap-update.sh` + `tools/apply-update.cjs` (ins
 `/opt/frhios` (version de l'ISO), `/var/lib/frhios/app/<tag>` (versions installées), `…/current` et `…/previous` (liens),
 `…/bad/` (versions défectueuses).
 
+## Publier une version avec son ISO (GitHub)
+
+Pousser un **tag de version** déclenche `.github/workflows/release.yml` : tests, construction de l'ISO, puis ajout
+de l'ISO aux fichiers joints de la « Release » de ce tag (créée si besoin, ou complétée si vous l'avez déjà créée
+depuis l'interface GitHub) :
+
+```sh
+git tag v1.1.0 && git push origin v1.1.0
+```
+
+Fichiers joints : `frhios-<tag>-x86_64.iso` et `SHA256SUMS` (vérification : `sha256sum -c SHA256SUMS`). Ce même tag est
+aussi la version proposée aux appareils (Réglages › Mises à jour) : une seule étape pour publier le code **et** l'ISO.
+
+- **Durée** : environ 20 à 40 minutes. Suivi dans l'onglet « Actions » ; relançable à la main pour un tag existant
+  (« Run workflow »).
+- **Pas de tag, pas d'ISO** : les commits sur `main` ne déclenchent rien ici. Un tag dont les tests échouent n'est pas publié.
+- **ISO « légère »** : GitHub limite chaque fichier à 2 Go, donc l'ISO de la pipeline n'embarque **pas** les images Docker
+  de Home Assistant et de Matter (~3 Go) : l'appareil les télécharge au premier démarrage (réseau nécessaire). Pour une ISO
+  avec ces images (installation hors ligne) : `./iso/build.sh` sur votre PC. Si l'ISO dépassait quand même la limite, elle
+  serait découpée en morceaux, avec la commande pour les recoller dans les notes de la version.
+- Les tags `V1.0` (majuscule) et `v1.0.0` sont tous deux acceptés.
+
 ## Tests et pipeline GitHub
 
 ```sh
