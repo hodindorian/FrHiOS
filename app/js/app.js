@@ -115,6 +115,11 @@ function controllable() {
   return out;
 }
 
+// Actions personnalisées : les scènes et scripts créés dans Home Assistant, affichés en boutons sur l'accueil
+// (hors ceux marqués « réglage » ou masqués dans HA).
+const customActions = () => entities.filter((e) => (e.domain === 'scene' || e.domain === 'script') && !e.secondary)
+  .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+
 const lights = () => controllable().filter((e) => e.domain === 'light');
 const switches = () => controllable().filter((e) => e.domain === 'switch');
 
@@ -169,6 +174,9 @@ function homeView() {
     <div class="chips">
       <button class="chip-btn" data-action="all-off">${icons.power} Tout éteindre</button>
       <button class="chip-btn" data-action="ambiance">${icons.moon} Ambiance chaude</button>
+      ${customActions().map((e) => `<button class="chip-btn" data-action="run-action" data-id="${esc(e.id)}">${icons.play} ${esc(e.name)}</button>`).join('')}
+      ${mode() === 'local' && haLocal?.state === 'ready'
+        ? `<button class="chip-btn ghost" data-action="open-admin" aria-label="Créer une action dans Home Assistant">＋ Action</button>` : ''}
     </div>
 
     <h2>Allumés${on.length ? ` · ${on.length}` : ''}</h2>
@@ -596,6 +604,14 @@ const ACTIONS = {
     lights().filter(hasTemp).forEach((e) =>
       call('light', 'turn_on', e.id, { brightness_pct: 30, color_temp_kelvin: 2700 }));
     toast('Ambiance chaude');
+  },
+
+  // Scène ou script Home Assistant (créé dans HA › Paramètres › Automatisations et scènes)
+  'run-action': (el) => {
+    const e = byId(el.dataset.id);
+    if (!e) return;
+    call(e.domain, 'turn_on', e.id);
+    toast(e.name);
   },
 
   'light-color': (el) => call('light', 'turn_on', el.dataset.id, { rgb_color: rgbFrom(el.dataset.rgb) }),

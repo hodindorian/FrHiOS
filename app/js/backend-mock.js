@@ -21,6 +21,8 @@ const seed = () => [
     attributes: {} },
   { id: 'media_player.tv_philips', name: 'TV Philips 55OLED809', domain: 'media_player', state: 'off', room: 'Salon',
     attributes: { volume_level: 0.25, is_volume_muted: false } },
+  { id: 'scene.soiree_film', name: 'Soirée film', domain: 'scene', state: 'unknown', room: null, attributes: {} },
+  { id: 'script.bonne_nuit', name: 'Bonne nuit', domain: 'script', state: 'off', room: null, attributes: {} },
   { id: 'remote.tv_philips', name: 'Télécommande TV Philips', domain: 'remote', state: 'off', room: 'Salon',
     attributes: {} },
 ];
@@ -54,6 +56,9 @@ export class MockBackend {
   async call(domain, service, entityId, data = {}) {
     const e = this.entities.find((x) => x.id === entityId);
     if (!e) return;
+
+    // Scènes et scripts : la démo ne fait que les « jouer » (Home Assistant exécute le vrai contenu)
+    if (domain === 'scene' || domain === 'script') return;
 
     if (service === 'toggle') service = e.state === 'on' ? 'turn_off' : 'turn_on';
 

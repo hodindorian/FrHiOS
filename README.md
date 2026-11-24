@@ -313,6 +313,10 @@ masquées) et « Tout éteindre » ne touche qu'elles. *Réglages › Tout affic
 - L'automatisation de HA (`ha-local.js`) et la page d'ajout ont été testées contre un **faux serveur** qui imite
   les API de HA (onboarding, jetons, formulaires d'ajout, Matter), pas encore contre un vrai Home Assistant.
 
+## Actions personnalisées (accueil)
+
+Les boutons sous l'horloge (« Tout éteindre », « Ambiance chaude ») sont intégrés. Toutes les **scènes** et tous les **scripts** de Home Assistant s'y ajoutent automatiquement, à côté : créez-les dans HA (Réglages › Ouvrir, ou le bouton « ＋ Action »), puis *Paramètres › Automatisations et scènes › Scènes* (ou *Scripts*). Une scène/un script marqué « masqué » dans HA n'apparaît pas.
+
 ## Étapes
 
 1. ✅ Prototype de l'interface (mode démo)

@@ -150,6 +150,7 @@ h2::before { content: "✦"; color: var(--accent); margin-right: .55em; }
   background: var(--surface); border: 1px solid var(--line); font-weight: 600; backdrop-filter: blur(12px);
 }
 .chip-btn svg { color: var(--accent); }
+.chip-btn.ghost { background: transparent; border-style: dashed; color: var(--muted, #cdbfff); }
 .chip-btn:active { background: var(--surface-2); }
 
 /* ---------- Tuiles ---------- */

@@ -4,7 +4,7 @@
 // Il faut un « jeton d'accès longue durée » : Home Assistant > Profil > Sécurité.
 // Même interface que backend-mock.js.
 
-const DOMAINS = new Set(['light', 'switch', 'media_player', 'remote']);
+const DOMAINS = new Set(['light', 'switch', 'media_player', 'remote', 'scene', 'script']);
 
 export class HABackend {
   constructor(url, token) {
