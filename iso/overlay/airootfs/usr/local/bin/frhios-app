@@ -1,11 +1,66 @@
 #!/bin/sh
 # Lance l'interface FrHiOS dans la session sway (voir /etc/frhios/sway.conf et frhios-session).
 # Journal : /tmp/frhios-app.log (à consulter depuis la console 2 : Ctrl+Alt+F2)
+#
+# Quelle version de l'application ?
+#   - /var/lib/frhios/app/current : la dernière mise à jour installée (voir electron/updater.js)
+#   - sinon /opt/frhios            : la version livrée avec l'ISO
+# Si la version mise à jour ne démarre pas, on revient tout seul à la précédente (ou à celle de l'ISO) :
+#   - l'interface plante dès le démarrage (code d'erreur en moins de MIN_RUN secondes), ou
+#   - elle ne signale pas « bien démarré » (fichier $HEALTH) dans les WATCHDOG secondes.
+# Les variables FRHIOS_* ne servent qu'aux tests ; hors tests, les valeurs par défaut s'appliquent.
 export ELECTRON_ENABLE_LOGGING=1
-{
-  echo "== $(date) mode=$FRHIOS_MODE flags=$FRHIOS_FLAGS WAYLAND_DISPLAY=$WAYLAND_DISPLAY SWAYSOCK=$SWAYSOCK"
-  /usr/bin/electron /opt/frhios $FRHIOS_MODE $FRHIOS_FLAGS
-  echo "== electron s'est arrêté (code $?)"
-} >> /tmp/frhios-app.log 2>&1
+LOG=${FRHIOS_LOG:-/tmp/frhios-app.log}
+ELECTRON_BIN=${FRHIOS_ELECTRON:-/usr/bin/electron}
+FACTORY=${FRHIOS_FACTORY_DIR:-/opt/frhios}
+STATE=${FRHIOS_STATE_DIR:-/var/lib/frhios}/app
+HEALTH=${FRHIOS_HEALTH_FILE:-/tmp/frhios-healthy}
+WATCHDOG=${FRHIOS_WATCHDOG_SECONDS:-120}
+MIN_RUN=${FRHIOS_MIN_RUN_SECONDS:-20}
+
+APP=$FACTORY
+# L'assistant d'installation de l'ISO utilise toujours la version livrée avec l'ISO
+if [ "$FRHIOS_MODE" != "--installer" ] && [ -f "$STATE/current/electron/main.js" ] && [ -f "$STATE/current/package.json" ]; then
+  APP="$STATE/current"
+fi
+
+rollback() {
+  BAD=$(readlink "$STATE/current" 2>/dev/null)
+  echo "== version défectueuse ($BAD) : retour arrière" >> "$LOG"
+  mkdir -p "$STATE/bad"
+  [ -n "$BAD" ] && : > "$STATE/bad/$(basename "$BAD")"
+  PREV=$(readlink "$STATE/previous" 2>/dev/null)
+  if [ -n "$PREV" ] && [ "$PREV" != "$BAD" ] && [ -f "$PREV/electron/main.js" ] && [ ! -e "$STATE/bad/$(basename "$PREV")" ]; then
+    ln -sfn "$PREV" "$STATE/.current.tmp" && mv -T "$STATE/.current.tmp" "$STATE/current"
+  else
+    rm -f "$STATE/current"
+  fi
+}
+
+rm -f "$HEALTH"
+export FRHIOS_HEALTH="$HEALTH"
+echo "== $(date) mode=$FRHIOS_MODE flags=$FRHIOS_FLAGS app=$APP WAYLAND_DISPLAY=$WAYLAND_DISPLAY SWAYSOCK=$SWAYSOCK" >> "$LOG"
+START=$(date +%s)
+
+"$ELECTRON_BIN" "$APP" $FRHIOS_MODE $FRHIOS_FLAGS >> "$LOG" 2>&1 &
+EPID=$!
+WATCH=
+if [ "$APP" != "$FACTORY" ]; then
+  # Chien de garde : une version qui ne dit jamais « bien démarré » est arrêtée
+  ( sleep "$WATCHDOG"; [ -f "$HEALTH" ] || { echo "== aucun signal de bon démarrage en ${WATCHDOG}s : arrêt de l'interface" >> "$LOG"; kill "$EPID" 2>/dev/null; } ) &
+  WATCH=$!
+fi
+wait "$EPID"
+CODE=$?
+[ -n "$WATCH" ] && kill "$WATCH" 2>/dev/null
+echo "== electron s'est arrêté (code $CODE)" >> "$LOG"
+
+if [ "$APP" != "$FACTORY" ]; then
+  ELAPSED=$(( $(date +%s) - START ))
+  if [ ! -f "$HEALTH" ] || { [ "$CODE" -ne 0 ] && [ "$ELAPSED" -lt "$MIN_RUN" ]; }; then
+    rollback
+  fi
+fi
+
 # L'interface s'est arrêtée : on ferme sway, frhios-session relance une session propre
 swaymsg exit

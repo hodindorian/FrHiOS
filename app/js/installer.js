@@ -4,6 +4,7 @@
 
 import { icons } from './icons.js';
 
+if (new URLSearchParams(location.search).has('lite')) document.documentElement.classList.add('lite');
 const root = document.getElementById('installer');
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

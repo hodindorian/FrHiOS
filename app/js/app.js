@@ -5,6 +5,7 @@ import { icons, domainIcon } from './icons.js';
 import { createMusicPage } from './music.js';
 import { createElectronMusicPage, ADMIN_SERVICES } from './music-electron.js';
 import { mountWifi } from './wifi.js';
+import { mountUpdate } from './update.js';
 import { createTerminalPage } from './terminal.js';
 import { createOsk } from './osk.js';
 import { mountSetup, onHaStatus } from './setup.js';
@@ -333,6 +334,7 @@ function settingsView() {
       ` : mode() === 'mock' ? '<p class="hint">Le mode démo utilise de faux appareils pour tester l’interface.</p>' : ''}
 
       <div id="wifi-box" class="wifi-box"></div>
+      <div id="update-box" class="wifi-box"></div>
 
       ${window.frhios ? `
       <div class="switch-row">
@@ -430,16 +432,28 @@ function renderSheet() {
   host.hidden = false;
 }
 
-function openSheet(id) { sheetId = id; renderSheet(); }
-function openPower() { powerOpen = true; renderSheet(); }
-function closeSheet() { sheetId = null; powerOpen = false; renderSheet(); render(); }
+// Les sites web (YouTube, Deezer, administration de Home Assistant) sont des vues/fenêtres NATIVES posées
+// par-dessus l'interface : aucune fenêtre de la page ne peut passer devant. Tant qu'une fenêtre de dialogue
+// est ouverte, on les masque (elles restent chargées : la musique continue) puis on les remet.
+let webSuspended = false;
+function suspendWeb() {
+  if (shownPersistent && !webSuspended) { pages[shownPersistent]?.onHide(); webSuspended = true; }
+}
+function resumeWeb() {
+  if (webSuspended) { webSuspended = false; if (shownPersistent) pages[shownPersistent]?.onShow(); }
+}
+
+function openSheet(id) { suspendWeb(); sheetId = id; renderSheet(); }
+function openPower() { suspendWeb(); powerOpen = true; renderSheet(); }
+function closeSheet() { sheetId = null; powerOpen = false; renderSheet(); render(); resumeWeb(); }
 
 /* ============================== Rendu ============================== */
 
+let updateAvailable = false;     // une nouvelle version de l'application est disponible
 function renderNav() {
   $('#nav').innerHTML = visibleNav().map((n) => n.id === 'spacer'
     ? '<div class="spacer"></div>'
-    : `<button data-action="nav" data-view="${n.id}" class="${n.id === view ? 'active' : ''}"
+    : `<button data-action="nav" data-view="${n.id}" class="${n.id === view ? 'active' : ''}${n.id === 'settings' && updateAvailable ? ' badge' : ''}"
                ${n.id === view ? 'aria-current="page"' : ''}>${n.icon}<span>${n.label}</span></button>`).join('');
 }
 
@@ -456,7 +470,7 @@ function render() {
     shownPersistent = persistent;
     pages[persistent]?.onShow();
   }
-  if (view === 'settings') mountWifi($('#wifi-box'));
+  if (view === 'settings') { mountWifi($('#wifi-box')); mountUpdate($('#update-box'), { toast }); }
   if (view === 'setup') mountSetup($('#setup-box'), { toast });
   tickClock();
 }
@@ -714,6 +728,7 @@ function init() {
 
   const params = new URLSearchParams(location.search);
   if (params.has('kiosk')) { settings.hideCursor = true; }
+  if (params.has('lite')) document.documentElement.classList.add('lite');
   applyCursor();
 
   const fromHash = location.hash.slice(1);
@@ -737,6 +752,16 @@ function init() {
   render();
   setInterval(tickClock, 1000);
   startBackend();
+
+  // Mises à jour : pastille sur « Réglages » quand une version est disponible
+  window.frhios?.update?.onState?.((st) => {
+    const was = updateAvailable;
+    updateAvailable = st?.state === 'available';
+    if (updateAvailable !== was) renderNav();
+    if (updateAvailable && !was) toast('Mise à jour disponible (Réglages)');
+  });
+  // Signale à l'appareil que l'interface a bien démarré (sinon retour automatique à la version précédente)
+  window.frhios?.app?.ready?.();
 }
 
 init();

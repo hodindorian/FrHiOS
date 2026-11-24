@@ -46,6 +46,17 @@ contextBridge.exposeInMainWorld('frhios', {
     // Wake-on-LAN : réveille un appareil en veille (la télé) par son adresse MAC
     wake: (mac) => ipcRenderer.invoke('net:wake', mac),
   },
+  update: {
+    status: () => ipcRenderer.invoke('update:status'),
+    check: () => ipcRenderer.invoke('update:check'),
+    apply: () => ipcRenderer.invoke('update:apply'),
+    onProgress: (cb) => { ipcRenderer.on('update:progress', (_e, text) => cb(text)); },
+    onState: (cb) => { ipcRenderer.on('update:state', (_e, st) => cb(st)); },
+  },
+  app: {
+    // L'interface annonce qu'elle a bien démarré (sinon frhios-app revient à la version précédente)
+    ready: () => ipcRenderer.send('app:ready'),
+  },
   clipboard: {
     read: () => ipcRenderer.invoke('clipboard:read'),
   },

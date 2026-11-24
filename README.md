@@ -104,6 +104,70 @@ initial `frhios` pour la maintenance au clavier (console 2 : Ctrl+Alt+F2 ; à ch
   en clair d'un alias, adresses de serveurs, outils de développement absents du mini PC, et l'alias
   `kill -9 -1`. Si vous ajoutez un alias à votre `.zshrc`, recopiez-le à la main dans ce fichier.
 
+## Mettre à jour l'appareil sans réinstaller l'ISO
+
+Réglages › **Mises à jour de FrHiOS**. L'appareil suit les **versions publiées**, c'est-à-dire les **tags** du dépôt
+GitHub (`hodindorian/FrHiOS`, public : aucun jeton nécessaire). Les commits intermédiaires sont **ignorés** : pousser
+du code sur `main` ne change rien sur l'appareil tant qu'aucun tag plus récent n'existe.
+
+**Publier une version** (depuis votre PC) :
+
+```sh
+git commit -am "…" && git push
+git tag v1.1.0 && git push origin v1.1.0      # c'est ce tag qui déclenche la proposition sur l'appareil
+```
+
+Seuls les tags de la forme `v1`, `v1.2`, `v1.2.3` (ou sans le `v`) comptent, classés par numéro (`v1.10.0` > `v1.9.0`).
+Les autres (`latest`, `test`, `v1.0-rc1`…) sont ignorés.
+
+Sur l'appareil :
+- **Rechercher une mise à jour** : affiche le tag le plus récent et la liste des changements (titres de commits).
+  Une vérification discrète a aussi lieu 90 s après le démarrage puis toutes les 6 h : une pastille apparaît sur
+  « Réglages », mais **rien n'est installé sans votre accord**.
+- **Installer et redémarrer** : télécharge le contenu **du tag** (jamais celui de commits plus récents), l'installe en
+  quelques secondes, puis relance l'interface.
+- **Retour arrière automatique** : si la nouvelle version plante au démarrage ou ne signale pas « bien démarré »
+  (120 s), l'appareil revient seul à la précédente (ou à celle de l'ISO) et marque ce tag défectueux : il n'est plus
+  proposé, il faut publier un tag corrigé (ex. `v1.1.1`).
+
+**Ce que ça met à jour** : l'application (`app/`, `electron/`, `assets/`). **Ce que ça ne met pas à jour** :
+- les paquets du système (Electron, Chromium, sway…) : commande `upg` dans le terminal ;
+- les fichiers système de FrHiOS hors application (`sway.conf`, services, scripts de session, droits `sudo`…) :
+  ceux-là demandent une **nouvelle ISO** (`./iso/build.sh`).
+
+### Un appareil déjà installé avec une ancienne ISO (votre VM)
+
+Le mécanisme de retour arrière vit dans le script de démarrage de l'ISO : un système installé avant lui ne peut pas
+se mettre à jour seul. Une seule fois, après avoir publié un premier tag contenant ces fichiers, dans le terminal de
+l'appareil (Réglages › Terminal) :
+
+```sh
+git clone --depth 1 https://github.com/hodindorian/FrHiOS.git /tmp/frhios && sh /tmp/frhios/tools/bootstrap-update.sh
+```
+
+Le script télécharge le dernier tag, remplace `/usr/local/bin/frhios-app` (mot de passe `sudo`), installe la version,
+et redémarre l'interface. Ensuite tout passe par Réglages › Mises à jour. Les ISO construites après ce changement
+l'intègrent d'office.
+
+Fichiers : `electron/updater.js` (logique), `app/js/update.js` (écran), `iso/overlay/…/frhios-app` (choix de la version
+et retour arrière), `tools/bootstrap-update.sh` + `tools/apply-update.cjs` (installation à usage unique). Sur l'appareil :
+`/opt/frhios` (version de l'ISO), `/var/lib/frhios/app/<tag>` (versions installées), `…/current` et `…/previous` (liens),
+`…/bad/` (versions défectueuses).
+
+## Tests et pipeline GitHub
+
+```sh
+npm test        # ~40 tests, ~8 s, sans rien installer (Node, git et le shell suffisent)
+```
+
+La pipeline `.github/workflows/ci.yml` lance ces tests à chaque `push` sur `main` et à chaque demande de fusion
+(onglet « Actions » du dépôt, ou « Run workflow » à la demande). Elle vérifie notamment : la syntaxe de tout le code
+et des scripts de l'ISO, le système de mise à jour (tags) contre un faux dépôt, le script d'installation à usage unique, le retour arrière au démarrage, la
+reconnaissance des appareils déjà connectés, l'analyse des liens YouTube/Deezer, la présence des fichiers du décor,
+et l'absence de secrets dans les fichiers suivis par git. Un second contrôle, `shellcheck`, est informatif.
+
+Elle ne construit **pas** l'ISO (trop lourd : Docker + 2 Go) ni ne teste l'affichage réel (sway, Chromium).
+
 ## YouTube et la connexion Google
 
 Google refuse la connexion à un compte depuis un navigateur intégré comme Electron (« Ce navigateur ou
@@ -139,7 +203,7 @@ Tout tourne sur l'appareil, sans compte en ligne ni autre machine :
   au premier démarrage (`/usr/local/bin/frhios-image`) ; sans elles (`FRHIOS_BUNDLE_IMAGES=0`), elles sont
   téléchargées. Configuration : `/var/lib/homeassistant` (créée par `frhios-ha-config`).
 - **Premier démarrage** (`electron/ha-local.js`) : FrHiOS fait l'« onboarding » de HA à votre place
-  (compte `frhios` avec mot de passe aléatoire, France / français / Europe/Paris), crée un jeton longue
+  (compte `frhios` / mot de passe `frhios`, France / français / Europe/Paris), crée un jeton longue
   durée et s'y connecte. Identifiants : `~/.config/frhios/home-assistant.json` (lisible seulement par
   `frhios`) ; le mot de passe est aussi visible dans **Réglages** (bouton « Afficher »).
   L'**administration web** de HA (Réglages) s'ouvre déjà connectée.

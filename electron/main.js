@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFile, spawn } = require('node:child_process');
 const { YoutubeWindow } = require('./youtube-window');
+const { Updater } = require('./updater');
 const { LocalHA, HA_URL } = require('./ha-local');
 
 const APP_DIR = path.join(__dirname, '..', 'app');
@@ -470,6 +471,34 @@ ipcMain.on('term:kill', (event) => {
   if (fromMainWindow(event) && term) term.child.kill('SIGHUP');
 });
 
+/* ------------------------- Mises à jour de l'application ------------------------- */
+
+const updater = new Updater(app.getAppPath());
+
+ipcMain.handle('update:status', (event) => (fromMainWindow(event) ? updater.status() : null));
+
+ipcMain.handle('update:check', async (event) => {
+  if (!fromMainWindow(event)) return null;
+  const st = await updater.check();
+  win?.webContents.send('update:state', st);
+  return st;
+});
+
+ipcMain.handle('update:apply', async (event) => {
+  if (!fromMainWindow(event)) return { ok: false, error: 'Refusé' };
+  const r = await updater.apply((text) => win?.webContents.send('update:progress', text));
+  // On quitte : frhios-app relance toute la session, qui démarre alors sur la nouvelle version
+  if (r.ok) setTimeout(() => app.quit(), 2500);
+  return r;
+});
+
+// Signal « l'interface a bien démarré » : lu par frhios-app (retour arrière automatique sinon)
+ipcMain.on('app:ready', (event) => {
+  const file = process.env.FRHIOS_HEALTH;
+  if (!fromMainWindow(event) || !file) return;
+  try { fs.writeFileSync(file, `${Date.now()}\n`); } catch { /* dossier inaccessible : sans importance */ }
+});
+
 /* ------------------------- Installateur (ISO) ------------------------- */
 
 const DISK_RE = /^\/dev\/(sd[a-z]+|vd[a-z]+|nvme\d+n\d+|mmcblk\d+)$/;
@@ -559,7 +588,19 @@ async function createWindow() {
 
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => { win = null; });
-  await win.loadURL(INSTALLER ? `${origin}/installer.html` : `${origin}/${KIOSK ? '?kiosk' : ''}`);
+  // Rendu logiciel (--disable-gpu : machine virtuelle ou carte sans 3D) : l'interface désactive les effets
+  // coûteux (flou d'arrière-plan, animations du décor) pour rester fluide.
+  const lite = app.commandLine.hasSwitch('disable-gpu');
+  const query = [KIOSK && 'kiosk', lite && 'lite'].filter(Boolean).join('&');
+  await win.loadURL(INSTALLER ? `${origin}/installer.html${lite ? '?lite' : ''}` : `${origin}/${query ? `?${query}` : ''}`);
+
+  // Sur l'appareil : recherche discrète d'une nouvelle version 90 s après le démarrage, puis toutes les 6 h.
+  // Rien n'est installé tout seul : l'interface affiche seulement une pastille sur « Réglages ».
+  if (KIOSK && !INSTALLER) {
+    const poll = () => updater.check().then((st) => win?.webContents.send('update:state', st)).catch(() => {});
+    setTimeout(poll, 90 * 1000);
+    setInterval(poll, 6 * 3600 * 1000).unref();
+  }
 }
 
 app.whenReady().then(() => {

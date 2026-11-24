@@ -2,7 +2,7 @@
 // Home Assistant local, géré par FrHiOS sans intervention :
 //  - attend que le conteneur réponde (http://127.0.0.1:8123)
 //  - au tout premier démarrage, fait l'« onboarding » à la place de l'utilisateur : compte
-//    administrateur (mot de passe aléatoire), réglages France, jeton d'accès longue durée
+//    administrateur (identifiant et mot de passe : frhios), réglages France, jeton d'accès longue durée
 //  - ensuite, sert d'intermédiaire pour ajouter des appareils (« config flows » de Home Assistant :
 //    Tapo, télé, Matter…) depuis l'interface tactile, sans passer par l'interface web de HA.
 //
@@ -200,7 +200,9 @@ class LocalHA extends EventEmitter {
     this.#setStatus('setup', 'Configuration initiale de Home Assistant…');
 
     if (!done.has('user')) {
-      const password = crypto.randomBytes(18).toString('base64url');
+      // Mot de passe volontairement simple (choix de l'utilisateur) : à changer si l'appareil est sur un réseau
+      // où d'autres personnes peuvent joindre Home Assistant (port 8123).
+      const password = 'frhios';
       const username = 'frhios';
       const r = await http('POST', '/api/onboarding/users', {
         json: { name: 'FrHiOS', username, password, client_id: CLIENT_ID, language: 'fr' },
@@ -290,10 +292,21 @@ class LocalHA extends EventEmitter {
   // Appareils découverts par HA (en attente de confirmation) + intégrations déjà configurées
   async overview() {
     const token = this.#token();
-    const [progress, entries] = await Promise.all([
+    const [progress, entries, devices] = await Promise.all([
       this.#ws({ type: 'config_entries/flow/progress' }).catch(() => []),
       http('GET', '/api/config/config_entries/entry', { token }),
+      this.#ws({ type: 'config/device_registry/list' }).catch(() => []),
     ]);
+    // Indices par intégration configurée (nom, modèle, adresse web de l'appareil…) : l'interface s'en sert
+    // pour reconnaître un appareil déjà connecté (par son adresse IP ou son modèle).
+    const hints = new Map();
+    for (const d of devices || []) {
+      for (const entryId of d.config_entries || []) {
+        const list = hints.get(entryId) || [];
+        list.push(...[d.name_by_user, d.name, d.model, d.manufacturer, d.configuration_url].filter(Boolean).map(String));
+        hints.set(entryId, list);
+      }
+    }
     return {
       discovered: (progress || []).map((f) => ({
         flowId: f.flow_id,
@@ -304,7 +317,7 @@ class LocalHA extends EventEmitter {
       })),
       entries: (entries || [])
         .filter((e) => e.source !== 'system' && !['ignore'].includes(e.source))
-        .map((e) => ({ entryId: e.entry_id, domain: e.domain, title: e.title, state: e.state })),
+        .map((e) => ({ entryId: e.entry_id, domain: e.domain, title: e.title, state: e.state, hints: hints.get(e.entry_id) || [] })),
     };
   }
 

@@ -35,6 +35,23 @@ cat > "$STAGE/frhios/package.json" <<'EOF'
 }
 EOF
 
+# version.json : quelle version du dépôt cette ISO contient (l'appareil compare avec GitHub pour proposer
+# les mises à jour, voir electron/updater.js). « dirty » : des modifications non commitées sont dans l'ISO.
+if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  v_commit="$(git -C "$ROOT" rev-parse HEAD)"
+  v_date="$(git -C "$ROOT" log -1 --format=%cI)"
+  v_msg="$(git -C "$ROOT" log -1 --format=%s)"
+  # Version publiée (tag) la plus proche de ce commit, ex. v1.2.0 ; vide s'il n'y a encore aucun tag
+  v_tag="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || true)"
+  v_msg="${v_msg//\\/\\\\}"; v_msg="${v_msg//\"/\\\"}"
+  v_dirty=false; [[ -n "$(git -C "$ROOT" status --porcelain -- app electron assets)" ]] && v_dirty=true
+  printf '{\n  "tag": "%s",\n  "commit": "%s",\n  "date": "%s",\n  "message": "%s",\n  "dirty": %s\n}\n' \
+    "$v_tag" "$v_commit" "$v_date" "$v_msg" "$v_dirty" > "$STAGE/frhios/version.json"
+else
+  echo '{}' > "$STAGE/frhios/version.json"
+fi
+echo "==> Version de l'application : $(tr -d '\n ' < "$STAGE/frhios/version.json" | cut -c1-80)"
+
 # oh-my-zsh : téléchargé dans le conteneur de construction (container-build.sh), rien à avoir sur ce PC
 
 # Images Docker de Home Assistant et du serveur Matter, embarquées dans l'ISO : l'appareil démarre

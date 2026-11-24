@@ -55,6 +55,52 @@ const MESSAGES = {
 
 const domainName = (d) => DOMAIN_NAMES[d] || d;
 
+/* ---- Quels appareils de la maison sont déjà connectés ? ---- */
+
+// Mémoire des appareils ajoutés depuis cette page : identifiant de l'appareil de la maison -> entrée Home Assistant
+const MEMO_KEY = 'frhios.homeDevices.v1';
+const loadMemo = () => { try { return JSON.parse(localStorage.getItem(MEMO_KEY) || '{}'); } catch { return {}; } };
+const saveMemo = (m) => { try { localStorage.setItem(MEMO_KEY, JSON.stringify(m)); } catch { /* stockage indisponible */ } };
+
+const hostOf = (d) => d.values?.host || '';
+const modelOf = (d) => (/\b[A-Z]{1,2}\d{2,4}[A-Z]?\b/.exec(d.detail || '') || [''])[0].toLowerCase();
+
+// Renvoie l'ensemble des identifiants (HOME_DEVICES) déjà connectés.
+// 1) ceux ajoutés par cette page (mémoire exacte, tant que l'entrée existe encore)
+// 2) les autres, reconnus par leur adresse IP, puis par leur modèle, dans le nom ou le registre d'appareils
+// 3) une intégration qui ne concerne qu'un seul appareil de la maison : l'entrée correspondante suffit
+export function connectedHomeIds(entries, memo = loadMemo()) {
+  const connected = new Set();
+  const claimed = new Set();
+  const byId = new Map(entries.map((e) => [e.entryId, e]));
+  const hay = (e) => [e.title, ...(e.hints || [])].join(' ').toLowerCase();
+
+  for (const d of HOME_DEVICES) {
+    const e = byId.get(memo[d.id]);
+    if (e && e.domain === d.handler) { connected.add(d.id); claimed.add(e.entryId); }
+  }
+  const free = (d) => entries.filter((e) => e.domain === d.handler && !claimed.has(e.entryId));
+  const take = (d, e) => { connected.add(d.id); claimed.add(e.entryId); };
+
+  for (const d of HOME_DEVICES) {            // par adresse IP
+    if (connected.has(d.id) || !hostOf(d)) continue;
+    const e = free(d).find((x) => hay(x).includes(hostOf(d)));
+    if (e) take(d, e);
+  }
+  for (const d of HOME_DEVICES) {            // par modèle (P100, L530…)
+    if (connected.has(d.id) || !modelOf(d)) continue;
+    const e = free(d).find((x) => hay(x).includes(modelOf(d)));
+    if (e) take(d, e);
+  }
+  for (const d of HOME_DEVICES) {            // un seul appareil de la maison pour cette intégration
+    if (connected.has(d.id)) continue;
+    if (HOME_DEVICES.filter((x) => x.handler === d.handler).length !== 1) continue;
+    const e = free(d)[0];
+    if (e) take(d, e);
+  }
+  return connected;
+}
+
 // Un seul écouteur IPC pour toute l'application ; les pages s'y abonnent et se désabonnent.
 const statusListeners = new Set();
 let statusHooked = false;
@@ -84,6 +130,7 @@ export function mountSetup(box, { toast } = {}) {
   let busyText = '';
   let message = '';
   let confirmDelete = null;
+  let pendingHomeId = null; // appareil de la maison en cours d'ajout (pour le mémoriser à la fin)
   let matterNew = false;
   let alive = true;
   let pollTimer = null;
@@ -166,6 +213,9 @@ export function mountSetup(box, { toast } = {}) {
     }
     if (step.type === 'menu') { mode = 'flow'; draw(); return; }
     if (step.type === 'create_entry') {
+      // Mémoriser quel appareil de la maison vient d'être connecté : il disparaît alors de la liste à connecter
+      const entryId = typeof step.result === 'string' ? step.result : step.result?.entry_id;
+      if (pendingHomeId && entryId) { const memo = loadMemo(); memo[pendingHomeId] = entryId; saveMemo(memo); }
       toast?.(`Connecté : ${step.title || domainName(step.handler)}`);
       back(`« ${step.title || domainName(step.handler)} » est connecté. Ses commandes apparaissent dans Appareils.`);
       return;
@@ -205,6 +255,7 @@ export function mountSetup(box, { toast } = {}) {
 
   function back(msg) {
     clearTimeout(pollTimer);
+    pendingHomeId = null;
     flow = null;
     mode = 'overview';
     message = msg;
@@ -396,6 +447,8 @@ export function mountSetup(box, { toast } = {}) {
 
     const discovered = data.discovered.filter((f) => !HIDDEN_DOMAINS.has(f.handler));
     const entries = data.entries.filter((e) => !HIDDEN_DOMAINS.has(e.domain));
+    const done = connectedHomeIds(data.entries);
+    const homeTodo = HOME_DEVICES.filter((d) => !done.has(d.id));
     return `${head}
       ${discovered.length ? `
         <h2>Détectés automatiquement</h2>
@@ -404,12 +457,12 @@ export function mountSetup(box, { toast } = {}) {
             <span>${esc(f.name || domainName(f.handler))}</span><span class="muted">${esc(domainName(f.handler))} · Ajouter</span>
           </button>`).join('')}</div>` : ''}
 
-      <h2>Appareils de la maison</h2>
-      <div class="setup-list">${HOME_DEVICES.map((d) => `
+      ${homeTodo.length ? `<h2>Appareils de la maison à connecter</h2>` : `<p class="hint">✦ Tous les appareils de la maison sont connectés.</p>`}
+      ${homeTodo.length ? `<div class="setup-list">${homeTodo.map((d) => `
         <button class="wifi-item" data-s="home" data-id="${d.id}">
           <span>${esc(d.name)} <span class="muted">· ${esc(d.detail)}</span>${d.hint ? `<br><span class="muted small">${esc(d.hint)}</span>` : ''}</span>
           <span class="muted">Connecter</span>
-        </button>`).join('')}</div>
+        </button>`).join('')}</div>` : ''}
 
       <h2>LEDs et autres appareils</h2>
       <div class="setup-list">
@@ -443,7 +496,7 @@ export function mountSetup(box, { toast } = {}) {
     switch (el.dataset.s) {
       case 'home': {
         const d = HOME_DEVICES.find((x) => x.id === el.dataset.id);
-        if (d) start(d.handler, d.values);
+        if (d) { pendingHomeId = d.id; start(d.handler, d.values); }
         break;
       }
       case 'start': start(el.dataset.handler); break;

@@ -1,0 +1,46 @@
+name: Tests
+
+# Lancé à chaque envoi sur main, à chaque demande de fusion, et à la demande (onglet « Actions »).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Lecture seule : cette pipeline n'a besoin d'écrire nulle part dans le dépôt
+permissions:
+  contents: read
+
+# Un nouvel envoi annule le contrôle précédent encore en cours sur la même branche
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests de fonctionnement
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Aucune dépendance à installer : les tests n'utilisent que Node, git et le shell.
+      # (Electron lui-même n'est pas nécessaire et pèserait ~100 Mo à télécharger.)
+      - name: Tests (syntaxe, mise à jour, retour arrière, décor, secrets…)
+        run: npm test
+
+  # Informatif : ne fait jamais échouer la pipeline. Signale les fautes courantes dans les scripts shell.
+  shellcheck:
+    name: Scripts shell (informatif)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          shellcheck -S warning iso/*.sh iso/overlay/airootfs/usr/local/bin/* 2>&1 || true

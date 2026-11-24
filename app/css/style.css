@@ -70,11 +70,7 @@ svg { width: 1.6em; height: 1.6em; fill: none; stroke: currentColor; stroke-widt
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.spark { position: absolute; width: var(--s, 1rem); height: var(--s, 1rem); fill: #f6ecff; stroke: none; opacity: .25;
-  animation: twinkle var(--d, 5s) ease-in-out infinite; }
-@keyframes twinkle { 0%, 100% { opacity: .08; transform: scale(.7); } 50% { opacity: .55; transform: scale(1.1); } }
-
-@media (prefers-reduced-motion: reduce) { .bg-circle, .spark { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .bg-circle { animation: none; } }
 
 /* ---------- Structure ---------- */
 .app { position: relative; z-index: 1; display: grid; grid-template-columns: var(--nav-w) 1fr; height: 100%; }
@@ -395,3 +391,21 @@ input[type=range]::-moz-range-thumb { width: 2.4rem; height: 2.4rem; border-radi
 .hint.pre { white-space: pre-line; }
 .hint.err-text { color: var(--err); }
 .hint.notice { color: var(--text); padding: .8rem 1rem; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+
+/* ---------- Mode léger : rendu logiciel (machine virtuelle, carte sans 3D) ----------
+   Le flou d'arrière-plan et les animations du décor sont très coûteux sans carte graphique :
+   on les retire, et on rend les surfaces un peu plus opaques pour que le texte reste lisible. */
+html.lite * { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+html.lite .bg-circle { animation: none !important; }
+html.lite { --surface: rgba(32, 21, 64, .88); --surface-2: rgba(70, 51, 122, .84); }
+html.lite .nav { background: rgba(20, 12, 44, .94); }
+html.lite .osk, html.lite .inst-card { background: rgba(18, 10, 40, .97); }
+
+/* ---------- Mises à jour ---------- */
+.nav button { position: relative; }
+.nav button.badge::after {
+  content: ""; position: absolute; top: .55rem; right: 1.25rem; width: .7rem; height: .7rem;
+  border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 10px var(--accent-2);
+}
+.changes { margin: .2rem 0 1rem; padding-left: 1.2rem; line-height: 1.6; color: var(--text); }
+.btn[disabled] { opacity: .5; pointer-events: none; }
